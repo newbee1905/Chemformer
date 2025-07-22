@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import importlib
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from omegaconf import DictConfig
 
 if TYPE_CHECKING:
-    from typing import Any, Dict, List, Optional
+    from typing import Dict, List, Optional
 
 
 class BaseCollection:
@@ -23,6 +23,10 @@ class BaseCollection:
 
     def __repr__(self) -> str:
         return f"{self._collection_name} ({', '.join(self.names)})"
+
+    def add(self, key: str, item: Any) -> None:
+        """Add item to collection with a given key."""
+        self._items[key] = item
 
     def load_from_config(self, config: DictConfig) -> None:
         """
@@ -88,3 +92,5 @@ class BaseCollection:
             for key, value in data.items():
                 output[key] = value
         return output
+
+# vim: ts=4 sw=4 expandtab

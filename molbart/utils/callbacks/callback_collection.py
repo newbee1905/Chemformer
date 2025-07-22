@@ -5,12 +5,11 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-import yaml
-from omegaconf import ListConfig, OmegaConf
+import hydra
+from omegaconf import DictConfig, ListConfig
 from pytorch_lightning.callbacks import Callback
 
 from molbart.utils.base_collection import BaseCollection
-from molbart.utils.callbacks.callbacks import __name__ as callback_module
 
 if TYPE_CHECKING:
     from typing import List
@@ -54,35 +53,24 @@ class CallbackCollection(BaseCollection):
         self._items[repr(callback)] = callback
         self._logger.info(f"Loaded callback: {repr(callback)}")
 
-    def load_from_config(self, callbacks_config: ListConfig) -> None:
+    def load_from_config(self, callbacks_config: [DictConfig | ListConfig]) -> None:
         """
         Load one or several callbacks from a configuration dictionary
 
-        The keys are the name of callback class. If a callback is not
-        defined in the ``molbart.utils.callbacks.callbacks`` module, the module
-        name can be appended, e.g. ``mypackage.callbacks.AwesomeCallback``.
-
-        The values of the configuration is passed directly to the callback
-        class along with the ``config`` parameter.
-
         Args:
-            callbacks_config: Config of callbacks
+            callbacks_config: Config of callbacks. Can be a DictConfig or a ListConfig.
         """
-        for item in callbacks_config:
-            if isinstance(item, str):
-                cls = self.load_dynamic_class(item, callback_module)
-                obj = cls()
-                config_str = ""
-            else:
-                item = [(key, item[key]) for key in item.keys()][0]
-                name, kwargs = item
+        if not isinstance(callbacks_config, (DictConfig, ListConfig)):
+            self._logger.warning("Callbacks config is not a DictConfig or ListConfig, skipping.")
+            return
 
-                x = yaml.load(OmegaConf.to_yaml(kwargs), Loader=yaml.SafeLoader)
-                kwargs = self._unravel_list_dict(x)
+        if isinstance(callbacks_config, DictConfig):
+            config_list = callbacks_config.values()
+        else:
+            config_list = callbacks_config
 
-                cls = self.load_dynamic_class(name, callback_module)
-                obj = cls(**kwargs)
-                config_str = f" with configuration '{kwargs}'"
-
-            self._items[repr(obj)] = obj
-            print(f"Loaded callback: '{repr(obj)}'{config_str}")
+        for cb_conf in config_list:
+            if isinstance(cb_conf, DictConfig) and "_target_" in cb_conf:
+                self._logger.info(f"Instantiating callback <{cb_conf._target_}>")
+                obj = hydra.utils.instantiate(cb_conf)
+                self.load(obj)
