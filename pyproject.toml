@@ -1,3 +1,22 @@
+[project]
+name = "Chemformer"
+version = "0.1.0"
+requires-python = ">=3.8,<3.9"
+dependencies = [
+	"rdkit==2022.9.3",
+	"torch==1.8.1",
+	"pytorch-lightning==1.2.3",
+	"pysmilesutils",
+	"hydra-core>=1.3.2",
+	"hydra-colorlog>=1.2.0",
+	"hydra-optuna-sweeper>=1.2.0",
+	"fastapi==0.98.0",
+	"pandas==1.3.5",
+]
+
+[tool.uv.sources]
+pysmilesutils = { git = "https://github.com/MolecularAI/pysmilesutils" }
+
 [tool.poetry]
 name = "chemformer"
 version = "2.1.0"
@@ -14,7 +33,7 @@ license = "Apache 2.0"
 packages = [{ include = "molbart" }]
 
 [tool.poetry.dependencies]
-python = "3.7.11"
+python = "3.8.5"
 rdkit = "2022.9.3"
 torch = "1.8.1"
 pytorch-lightning = "1.2.3"
