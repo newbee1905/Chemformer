@@ -72,7 +72,7 @@ def instantiate_plugins(plugin_cfg: Optional[DictConfig]) -> List[Plugin]:
     return plugin
 
 
-def calc_train_steps(args, dm, n_gpus=None):
+def calc_train_steps(args, dm, n_gpus=1):
     n_gpus = getattr(args, "n_gpus", n_gpus)
     dm.setup()
     if n_gpus > 0:
@@ -83,7 +83,7 @@ def calc_train_steps(args, dm, n_gpus=None):
     return train_steps
 
 
-def build_trainer(config, n_gpus=None):
+def build_trainer(config, n_gpus=1):
 
     print("Instantiating loggers...")
     logger = instantiate_logger(config.get("logger"))

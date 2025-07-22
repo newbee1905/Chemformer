@@ -21,9 +21,9 @@ n_nodes: 1
 acc_batches: 1
 
 # Data
-data_path: null             # Required
+data_path: data/zinc # Required
 vocabulary_path: bart_vocab.json
-dataset_type: chembl        # [chembl, zinc]
+dataset_type: zinc # [chembl, zinc]
 task: mask_aug              # [mask_aug]
 mask_scheme: span            # ["span", "replace"]
 mask_prob: 0.10
@@ -54,8 +54,11 @@ callbacks:
   - LearningRateMonitor
   - ModelCheckpoint:
     - period: 1
-    - monitor: val_loss
-  - MetricsCallback
+    - monitor: validation_loss
   - StepCheckpoint:
     - step_interval: 50000
-  - OptLRMonitor
+  - ValidationScoreCallback
+
+scorers:
+  - FractionInvalidScore
+  - TopKAccuracyScore
