@@ -6,7 +6,6 @@ import math
 import pytorch_lightning as pl
 from omegaconf import DictConfig, ListConfig
 from pytorch_lightning.loggers import TensorBoardLogger
-from pytorch_lightning.plugins.base import Plugin
 
 from molbart.utils.callbacks.callback_collection import CallbackCollection
 from molbart.utils.scores import ScoreCollection
@@ -61,9 +60,9 @@ def instantiate_logger(logger_config: Optional[DictConfig]) -> TensorBoardLogger
     return logger
 
 
-def instantiate_plugins(plugin_cfg: Optional[DictConfig]) -> List[Plugin]:
+def instantiate_plugins(plugin_cfg: Optional[DictConfig]) -> List:
     """Instantiates plugins from config."""
-    plugins: list[Plugin] = []
+    plugins: list = []
 
     if not plugin_cfg:
         print("No plugin configs found! Skipping...")
@@ -106,7 +105,7 @@ def build_trainer(config, n_gpus=1):
     callbacks: CallbackCollection = instantiate_callbacks(config.get("callbacks"))
 
     print("Instantiating plugins...")
-    plugins: list[Plugin] = instantiate_plugins(config.get("plugin"))
+    plugins: list = instantiate_plugins(config.get("plugin"))
 
     print("Building trainer...")
 
