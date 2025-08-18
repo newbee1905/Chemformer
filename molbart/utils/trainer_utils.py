@@ -6,7 +6,7 @@ import math
 import pytorch_lightning as pl
 from omegaconf import DictConfig, ListConfig
 from pytorch_lightning.loggers import TensorBoardLogger
-from pytorch_lightning.plugins import Plugin
+from pytorch_lightning.plugins.base import Plugin
 
 from molbart.utils.callbacks.callback_collection import CallbackCollection
 from molbart.utils.scores import ScoreCollection
