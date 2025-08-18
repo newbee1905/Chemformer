@@ -104,7 +104,7 @@ def build_seq2seq_datamodule(config, tokenizer, forward=True):
 
 
 def seed_everything(seed):
-    pl.utilities.seed.seed_everything(seed)
+		pl.seed_everything(seed)
 
 
 def load_bart(args, sampler):
