@@ -117,7 +117,7 @@ def build_trainer(config, n_gpus=1):
     # Filter config to only include trainer arguments
     trainer_kwargs = {k: v for k, v in config.items() if k in trainer_params}
 
-		# Renaming configuration to Trainer arguments
+    # Renaming configuration to Trainer arguments
     if config.get("n_epochs") is not None:
         trainer_kwargs["max_epochs"] = config.get("n_epochs")
     if config.get("acc_batches") is not None:
