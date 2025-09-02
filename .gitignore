@@ -1,2 +1,8 @@
 .pytest_cache
 __pycache__
+
+models/
+data/
+outputs/
+metrics.csv
+sampled_smiles.json
