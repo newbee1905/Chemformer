@@ -31,6 +31,7 @@ def instantiate_scorers(scorer_config: Optional[DictConfig]) -> ScoreCollection:
         print("No scorer configs found! Skipping...")
         return scorers
 
+    print(type(scorer_config))
     if not isinstance(scorer_config, DictConfig):
         raise TypeError("Scorer config must be a DictConfig!")
 
