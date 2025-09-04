@@ -32,14 +32,21 @@ def instantiate_scorers(scorer_config: Optional[DictConfig]) -> ScoreCollection:
         return scorers
 
     print(type(scorer_config))
-    if not isinstance(scorer_config, DictConfig):
-        raise TypeError("Scorer config must be a DictConfig!")
+    if not isinstance(scorer_config, (DictConfig, ListConfig)):
+        raise TypeError("Scorer config must be a DictConfig or ListConfig!")
 
-    for key, sc_conf in scorer_config.items():
-        if isinstance(sc_conf, DictConfig) and "_target_" in sc_conf:
-            print(f"Instantiating scorer <{sc_conf._target_}>")
-            scorer_obj = hydra.utils.instantiate(sc_conf)
-            scorers.add(key, scorer_obj)
+    if isinstance(scorer_config, DictConfig):
+        for key, sc_conf in scorer_config.items():
+            if isinstance(sc_conf, DictConfig) and "_target_" in sc_conf:
+                print(f"Instantiating scorer <{sc_conf._target_}>")
+                scorer_obj = hydra.utils.instantiate(sc_conf)
+                scorers.add(key, scorer_obj)
+    else:
+        for sc_conf in scorer_config:
+            if isinstance(sc_conf, DictConfig) and "_target_" in sc_conf:
+                print(f"Instantiating scorer <{sc_conf._target_}>")
+                scorer_obj = hydra.utils.instantiate(sc_conf)
+                scorers.add(repr(scorer_obj), scorer_obj)
 
     return scorers
 
