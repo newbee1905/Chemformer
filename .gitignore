@@ -6,3 +6,6 @@ data/
 outputs/
 metrics.csv
 sampled_smiles.json
+round_trip_metrics.csv
+round_trip_sampled_smiles.json
+tb_logs/
