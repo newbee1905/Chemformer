@@ -112,7 +112,6 @@ def build_trainer(config, n_gpus=1):
 
     print("Instantiating callbacks...")
     callbacks: CallbackCollection = instantiate_callbacks(config.get("callbacks"))
-    print(callbacks)
 
     print("Instantiating plugins...")
     plugins: list[Plugin] = instantiate_plugins(config.get("plugin"))

@@ -627,12 +627,12 @@ class Chemformer:
             batch = self.on_device(batch)
             metrics = self.model.test_step(batch, b_idx)
 
-            if "sampled_smiles" in metrics and "target_smiles" in metrics:
+            if "sampled_molecules" in metrics and "target_smiles" in metrics:
                 top_1_hits = []
                 top_5_hits = []
                 
-                for target, samples in zip(metrics["target_smiles"], metrics["sampled_smiles"]):
-                    if samples and samples[0] == target:
+                for target, samples in zip(metrics["target_smiles"], metrics["sampled_molecules"]):
+                    if samples.size > 0 and samples[0] == target:
                         top_1_hits.append(1)
                     else:
                         top_1_hits.append(0)
@@ -666,6 +666,10 @@ class Chemformer:
                 ]
                 metrics_unique = {f"{key}(unique)": val for key, val in metrics_unique.items() if key not in drop_cols}
                 metrics.update(metrics_unique)
+
+            if top_1_hits: # Ensure lists are not empty before calculating mean
+                metrics["top_1_accuracy"] = np.mean(top_1_hits)
+                metrics["top_5_accuracy"] = np.mean(top_5_hits)
 
             postfix_metrics = {}
             for key, val in metrics.items():
