@@ -615,7 +615,8 @@ class Chemformer:
         self.model.eval()
         self.model.to(self.device)
 
-        for b_idx, batch in enumerate(dataloader):
+        pbar = tqdm(dataloader, desc="Testing")
+        for b_idx, batch in enumerate(pbar):
             batch = self.on_device(batch)
             metrics = self.model.test_step(batch, b_idx)
 
@@ -636,8 +637,6 @@ class Chemformer:
                     }
                 )
 
-                print(metrics_unique)
-
                 drop_cols = [
                     "fraction_invalid",
                     "fraction_unique",
@@ -646,7 +645,16 @@ class Chemformer:
                 metrics_unique = {f"{key}(unique)": val for key, val in metrics_unique.items() if key not in drop_cols}
                 metrics.update(metrics_unique)
 
-            print(metrics)
+            postfix_metrics = {}
+            for key, val in metrics.items():
+                if hasattr(val, 'item'):
+                    postfix_metrics[key] = f"{val.item():.4f}"
+                elif isinstance(val, float):
+                    postfix_metrics[key] = f"{val:.4f}"
+                elif isinstance(val, int):
+                    postfix_metrics[key] = val
+
+            pbar.set_postfix(postfix_metrics)
 
             for callback in self.trainer.callbacks:
                 if not isinstance(callback, pl.callbacks.progress.ProgressBar):
