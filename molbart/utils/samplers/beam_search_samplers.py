@@ -154,7 +154,7 @@ class BeamSearchSampler:
                     self.log_lhs_unique,
                 ) = smiles_utils.uniqueify_sampled_smiles(sampled_smiles, log_lhs, model.n_unique_beams)
 
-				print(sampled_smiles[0])
+        print(sampled_smiles[0])
 
         if return_tokenized:
             return Y, log_lhs
@@ -598,3 +598,5 @@ class DecodeSampler:
             metrics[f"top_{str(num_samples)}_accuracy"] = accuracy
 
         return metrics
+
+# vim: ts=4 sw=4 expandtab

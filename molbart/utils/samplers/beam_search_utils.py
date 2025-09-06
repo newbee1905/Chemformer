@@ -240,3 +240,5 @@ def beamsearch(node, beamsize, stop_criterion):
     ll_tail = a[torch.arange(len(a)), end_tokens] * torch.logical_not(node.ll_mask).type(a.dtype)
     node.loglikelihood = node.loglikelihood + ll_tail.view(-1, 1)
     return node
+
+# vim: ts=4 sw=4 expandtab
