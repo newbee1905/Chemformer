@@ -649,7 +649,7 @@ class Chemformer:
             print(metrics)
 
             for callback in self.trainer.callbacks:
-                if isinstance(callback, pl.callbacks.progress.ProgressBar):
+                if not isinstance(callback, pl.callbacks.progress.ProgressBar):
                     callback.on_test_batch_end(self.trainer, self.model, metrics, batch, b_idx, 0)
 
 # vim: ts=4 sw=4 expandtab
