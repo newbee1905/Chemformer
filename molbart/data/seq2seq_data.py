@@ -19,26 +19,26 @@ class Uspto50DataModule(ReactionListDataModule):
         self._include_type_token = kwargs.get("include_type_token", False)
 
     def _get_sequences(self, batch: List[Dict[str, Any]], train: bool) -> Tuple[List[str], List[str]]:
-        reactants = [Chem.MolToSmiles(item["reactants"]) for item in batch]
-        products = [Chem.MolToSmiles(item["products"]) for item in batch]
+        reactants = [Chem.MolToSmiles(item["reactants_mol"]) for item in batch]
+        products = [Chem.MolToSmiles(item["products_mol"]) for item in batch]
 
         if train:
             reactants = self._batch_augmenter(reactants)
             products = self._batch_augmenter(products)
 
         if self._include_type_token and not self.reverse:
-            reactants = [item["type_tokens"] + smi for item, smi in zip(batch, reactants)]
+            reactants = [item["reaction_type"] + smi for item, smi in zip(batch, reactants)]
         if self._include_type_token and self.reverse:
-            products = [item["type_tokens"] + smi for item, smi in zip(batch, products)]
+            products = [item["reaction_type"] + smi for item, smi in zip(batch, products)]
 
         return reactants, products
 
     def _load_all_data(self) -> None:
         df = pd.read_pickle(self.dataset_path).reset_index()
         self._all_data = {
-            "reactants": df["reactants_mol"].tolist(),
-            "products": df["products_mol"].tolist(),
-            "type_tokens": df["reaction_type"].tolist(),
+            "reactants_mol": df["reactants_mol"].tolist(),
+            "products_mol": df["products_mol"].tolist(),
+            "reaction_type": df["reaction_type"].tolist(),
         }
         self._set_split_indices_from_dataframe(df)
 
@@ -51,8 +51,8 @@ class UsptoMixedDataModule(ReactionListDataModule):
     """
 
     def _get_sequences(self, batch: List[Dict[str, Any]], train: bool) -> Tuple[List[str], List[str]]:
-        reactants = [Chem.MolToSmiles(item["reactants"]) for item in batch]
-        products = [Chem.MolToSmiles(item["products"]) for item in batch]
+        reactants = [Chem.MolToSmiles(item["reactants_mol"]) for item in batch]
+        products = [Chem.MolToSmiles(item["products_mol"]) for item in batch]
         if train:
             reactants = self._batch_augmenter(reactants)
             products = self._batch_augmenter(products)
@@ -61,8 +61,8 @@ class UsptoMixedDataModule(ReactionListDataModule):
     def _load_all_data(self) -> None:
         df = pd.read_pickle(self.dataset_path).reset_index()
         self._all_data = {
-            "reactants": df["reactants_mol"].tolist(),
-            "products": df["products_mol"].tolist(),
+            "reactants_mol": df["reactants_mol"].tolist(),
+            "products_mol": df["products_mol"].tolist(),
         }
         self._set_split_indices_from_dataframe(df)
 
@@ -76,9 +76,9 @@ class UsptoSepDataModule(ReactionListDataModule):
     """
 
     def _get_sequences(self, batch: List[Dict[str, Any]], train: bool) -> Tuple[List[str], List[str]]:
-        reactants = [Chem.MolToSmiles(item["reactants"]) for item in batch]
-        reagents = [Chem.MolToSmiles(item["reagents"]) for item in batch]
-        products = [Chem.MolToSmiles(item["products"]) for item in batch]
+        reactants = [Chem.MolToSmiles(item["reactants_mol"]) for item in batch]
+        reagents = [Chem.MolToSmiles(item["reagents_mol"]) for item in batch]
+        products = [Chem.MolToSmiles(item["products_mol"]) for item in batch]
 
         if train:
             reactants = self._batch_augmenter(reactants)
@@ -92,9 +92,9 @@ class UsptoSepDataModule(ReactionListDataModule):
     def _load_all_data(self) -> None:
         df = pd.read_pickle(self.dataset_path).reset_index()
         self._all_data = {
-            "reactants": df["reactants_mol"].tolist(),
-            "products": df["products_mol"].tolist(),
-            "reagents": df["reagents_mol"].tolist(),
+            "reactants_mol": df["reactants_mol"].tolist(),
+            "products_mol": df["products_mol"].tolist(),
+            "reagents_mol": df["reagents_mol"].tolist(),
         }
         self._set_split_indices_from_dataframe(df)
 
