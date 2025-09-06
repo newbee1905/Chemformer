@@ -1,5 +1,5 @@
 version = 1
-revision = 2
+revision = 3
 requires-python = "==3.8.*"
 resolution-markers = [
     "platform_machine != 'aarch64' and platform_machine != 'arm64'",
@@ -182,6 +182,7 @@ dependencies = [
     { name = "hydra-colorlog" },
     { name = "hydra-core" },
     { name = "hydra-optuna-sweeper" },
+    { name = "lmdb" },
     { name = "pandas" },
     { name = "pysmilesutils" },
     { name = "pytorch-lightning" },
@@ -195,6 +196,7 @@ requires-dist = [
     { name = "hydra-colorlog", specifier = ">=1.2.0" },
     { name = "hydra-core", specifier = ">=1.3.2" },
     { name = "hydra-optuna-sweeper", specifier = ">=1.2.0" },
+    { name = "lmdb", specifier = ">=1.7.3" },
     { name = "pandas", specifier = "==1.3.5" },
     { name = "pysmilesutils", git = "https://github.com/MolecularAI/pysmilesutils" },
     { name = "pytorch-lightning", specifier = "==1.2.3" },
@@ -482,6 +484,20 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/98/be/f3e8c6081b684f176b761e6a2fef02a0be939740ed6f54109a2951d806f3/importlib_resources-6.4.5.tar.gz", hash = "sha256:980862a1d16c9e147a59603677fa2aa5fd82b87f223b6cb870695bcfce830065", size = 43372, upload-time = "2024-09-09T17:03:14.677Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/e1/6a/4604f9ae2fa62ef47b9de2fa5ad599589d28c9fd1d335f32759813dfa91e/importlib_resources-6.4.5-py3-none-any.whl", hash = "sha256:ac29d5f956f01d5e4bb63102a5a19957f1b9175e45649977264a1416783bb717", size = 36115, upload-time = "2024-09-09T17:03:13.39Z" },
+]
+
+[[package]]
+name = "lmdb"
+version = "1.7.3"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/5e/87/b6f8bccab1ec1fe58866108c0da648715bc1488627edf9702dae6380613a/lmdb-1.7.3.tar.gz", hash = "sha256:d4a27b7af4fe38f3409d9fbfbf47b617b3d94dee98a00bc8c2a8336ccd3f9b15", size = 883449, upload-time = "2025-07-26T01:11:43.197Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d7/88/7931a5b49aa7f5d978ef8099efb5486270baf08f58c6b0df1ae274849c19/lmdb-1.7.3-cp38-cp38-macosx_10_9_x86_64.whl", hash = "sha256:825ba8e83b8b5bdfda362eac573a39f045c088c2a26dd3126c4e7fa63a04d331", size = 100817, upload-time = "2025-07-26T01:11:28.835Z" },
+    { url = "https://files.pythonhosted.org/packages/4b/b2/b6d908fded5584a26a7f19b1fe6ad095e127daf843f9bcbff4004440b3be/lmdb-1.7.3-cp38-cp38-macosx_11_0_arm64.whl", hash = "sha256:6cbeeb02e83f7b8551a646f77b87f5ac5b206399ed9f8f89d09e9ec56a139399", size = 98252, upload-time = "2025-07-26T01:11:29.846Z" },
+    { url = "https://files.pythonhosted.org/packages/6b/21/5c6c8a3f7095d51373b6cc9094c436102c3903bac95b8d23960d374a97ed/lmdb-1.7.3-cp38-cp38-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:f12b508807d353f877e437d762c923108f5233075b48abe2335dae48228153bf", size = 294774, upload-time = "2025-07-26T01:11:30.859Z" },
+    { url = "https://files.pythonhosted.org/packages/c1/dd/14accf7b63b91cf281c19a4176b722b13565a7da7d79deba8acf43865a59/lmdb-1.7.3-cp38-cp38-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:ce6955d1a387e19c3f793ff4a105e4dc56405a9b192644b418779fff1a3c0a8f", size = 296203, upload-time = "2025-07-26T01:11:32.335Z" },
+    { url = "https://files.pythonhosted.org/packages/28/a9/26ed714dc26774e367fd2c11520287d6958f8792bd44a14e91ae72ab86ea/lmdb-1.7.3-cp38-cp38-win_amd64.whl", hash = "sha256:75bfd980a6348b14337c5a63343d02dc57c3b9b6220103dd8e4ad4e9c43a2b9b", size = 99119, upload-time = "2025-07-26T01:11:33.779Z" },
+    { url = "https://files.pythonhosted.org/packages/b9/ab/e6c2ba79107d20c7a45eae2d69e395691635e761b1e57f5a29c5f2fc42ff/lmdb-1.7.3-py3-none-any.whl", hash = "sha256:4cd7fb79b2c69dcf564d4eec36237e0efc303559176b60ff36fb47ccd3b8b5bb", size = 148538, upload-time = "2025-07-26T01:11:42.118Z" },
 ]
 
 [[package]]

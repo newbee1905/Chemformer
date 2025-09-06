@@ -123,7 +123,7 @@ class _AbsDataModule(pl.LightningDataModule):
         self.pin_memory = pin_memory
         self.unified_model = unified_model
 
-        self._num_workers = len(os.sched_getaffinity(0))
+        self._num_workers = len(os.sched_getaffinity(0)) - 1
 
         self.train_dataset = None
         self.val_dataset = None
@@ -481,8 +481,92 @@ class ReactionListDataModule(_AbsDataModule):
         self, batch: List[Dict[str, Any]], train: bool
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, List[str]]:
         encoder_smiles, decoder_smiles = self._get_sequences(batch, train)
+
         encoder_ids, encoder_mask = self._encoder(encoder_smiles, add_sep_token=self.unified_model and not self.reverse)
         decoder_ids, decoder_mask = self._encoder(decoder_smiles, add_sep_token=self.unified_model and self.reverse)
+
         if not self.reverse:
             return encoder_ids, encoder_mask, decoder_ids, decoder_mask, decoder_smiles
+
         return decoder_ids, decoder_mask, encoder_ids, encoder_mask, encoder_smiles
+
+class LMDBDataset(Dataset):
+    """
+    A PyTorch Dataset that reads data from an LMDB database on-the-fly.
+
+    This avoids loading the entire dataset into memory. It's initialized
+    with a path to the LMDB file and a list of keys that represent the
+    specific data split (e.g., training, validation).
+
+    :param db_path: Path to the LMDB database directory.
+    :param keys: A list of keys to be used for this dataset split.
+    """
+
+    def __init__(self, lmdb_path: str, indices: Sequence[int]):
+        self.lmdb_path = lmdb_path
+        self.indices = indices
+        self._env = None
+
+    def _init_db(self):
+        """Initialize the LMDB environment. Should be called on first access."""
+        self._env = lmdb.open(
+            self.lmdb_path,
+            readonly=True,
+            lock=False,
+            readahead=False,
+            meminit=False,
+        )
+
+    def __len__(self) -> int:
+        return len(self.keys)
+
+    def __getitem__(self, item: int) -> Dict[str, Any]:
+        if self._env is None:
+            self._init_db()
+
+        lmdb_idx = self.indices[item]
+        key = str(lmdb_idx).encode("utf-8")
+
+        with self._env.begin() as txn:
+            value = txn.get(key)
+        
+        if value is None:
+            raise IndexError(f"Index {item} (LMDB key {lmdb_idx}) not found in database.")
+
+        record = pickle.loads(value)
+        return record
+
+def _setup_lmdb_datasets(datamodule_instance: pl.LightningDataModule):
+    env = lmdb.open(
+        datamodule_instance.dataset_path,
+        readonly=True,
+        lock=False,
+        readahead=False,
+        meminit=False,
+    )
+
+    with env.begin() as txn:
+        train_idxs = pickle.loads(txn.get(b"train_idxs", pickle.dumps([])))
+        val_idxs = pickle.loads(txn.get(b"val_idxs", pickle.dumps([])))
+        test_idxs = pickle.loads(txn.get(b"test_idxs", pickle.dumps([])))
+
+    datamodule_instance.train_dataset = LMDBDataset(datamodule_instance.dataset_path, train_idxs)
+    datamodule_instance.val_dataset = LMDBDataset(datamodule_instance.dataset_path, val_idxs)
+    datamodule_instance.test_dataset = LMDBDataset(datamodule_instance.dataset_path, test_idxs)
+    env.close()
+
+class ReactionListDataModuleLMDB(ReactionListDataModule):
+    """Base DataModule for reaction-based datasets stored in LMDB format."""
+    def setup(self, stage: str = None):
+        """Loads indices from LMDB and creates train/val/test datasets."""
+        _setup_lmdb_datasets(self)
+
+
+class MoleculeListDataModuleLMDB(MoleculeListDataModule):
+    """Base DataModule for molecule-based datasets stored in LMDB format."""
+    def setup(self, stage: str = None):
+        """Loads indices from LMDB and creates train/val/test datasets."""
+        _setup_lmdb_datasets(self)
+
+
+# vim: ts=4 sw=4 expandtab

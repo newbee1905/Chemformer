@@ -8,7 +8,7 @@ import torch
 
 from molbart.models.transformer_models import BARTModel, UnifiedModel
 from molbart.data import SynthesisDataModule
-from molbart.data.mol_data import ChemblDataModule, ZincDataModule
+from molbart.data.mol_data import ChemblDataModule, ZincDataModule, ZincDataModuleLMDB
 from molbart.data.seq2seq_data import (
     MolecularOptimizationDataModule,
     Uspto50DataModule,
@@ -44,6 +44,7 @@ def build_molecule_datamodule(args, tokenizer, masker=None):
     dm_cls = {
         "chembl": ChemblDataModule,
         "zinc": ZincDataModule,
+        "zinc_lmdb": ZincDataModuleLMDB,
     }
 
     dm = dm_cls[args.dataset_type](

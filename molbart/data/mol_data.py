@@ -6,7 +6,7 @@ import pandas as pd
 import torch
 from rdkit import Chem
 
-from molbart.data.base import MoleculeListDataModule
+from molbart.data.base import MoleculeListDataModule, MoleculeListDataModuleLMDB
 
 
 class ChemblDataModule(MoleculeListDataModule):
@@ -49,3 +49,9 @@ class ZincDataModule(MoleculeListDataModule):
             df = pd.read_csv(path)
         self._all_data = {"smiles": df["smiles"].tolist()}
         self._set_split_indices_from_dataframe(df)
+
+class ZincDataModuleLMDB(MoleculeListDataModuleLMDB):
+    """DataModule for the ZINC dataset from an LMDB database."""
+    pass
+
+# vim: ts=4 sw=4 expandtab

@@ -3,7 +3,7 @@ import pandas as pd
 from rdkit import Chem
 from typing import Any, Dict, List, Tuple
 
-from molbart.data.base import ReactionListDataModule
+from molbart.data.base import ReactionListDataModule, _setup_lmdb_datasets
 
 
 class Uspto50DataModule(ReactionListDataModule):
@@ -127,3 +127,29 @@ class MolecularOptimizationDataModule(ReactionListDataModule):
             "output_mols": df["output_mols"].tolist(),
         }
         self._set_split_indices_from_dataframe(df)
+
+class Uspto50DataModuleLMDB(Uspto50DataModule):
+    """DataModule for the USPTO-50 dataset from an LMDB database."""
+    def setup(self, stage: str = None):
+        """Loads indices from LMDB and creates train/val/test datasets."""
+        _setup_lmdb_datasets(self)
+
+
+class UsptoMixedDataModuleLMDB(UsptoMixedDataModule):
+    """DataModule for the USPTO-Mixed dataset from an LMDB database."""
+    def setup(self, stage: str = None):
+        _setup_lmdb_datasets(self)
+
+
+class UsptoSepDataModuleLMDB(UsptoSepDataModule):
+    """DataModule for the USPTO-Separated dataset from an LMDB database."""
+    def setup(self, stage: str = None):
+        _setup_lmdb_datasets(self)
+
+
+class MolecularOptimizationDataModuleLMDB(MolecularOptimizationDataModule):
+    """DataModule for molecular optimization from an LMDB database."""
+    def setup(self, stage: str = None):
+        _setup_lmdb_datasets(self)
+
+# vim: ts=4 sw=4 expandtab

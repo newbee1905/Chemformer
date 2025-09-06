@@ -21,11 +21,11 @@ class SynthesisDataModule(ReactionListDataModule):
     datamodule_name = "synthesis"
 
     def __init__(
-            self, 
-            reactants: Optional[List[str]] = None, 
-            products: Optional[List[str]] = None, 
-            **kwargs
-        ):
+        self, 
+        reactants: Optional[List[str]] = None, 
+        products: Optional[List[str]] = None, 
+        **kwargs
+    ):
         super().__init__(**kwargs)
 
         self._in_memory = False
@@ -58,3 +58,5 @@ class SynthesisDataModule(ReactionListDataModule):
             self._set_split_indices_from_dataframe(df)
         else:
             super()._load_all_data()
+
+# vim: ts=4 sw=4 expandtab

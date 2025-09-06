@@ -10,6 +10,7 @@ def main(args):
 
     print("Running model inference and scoring.")
 
+    print(args)
     chemformer = Chemformer(args)
 
     chemformer.score_model(
