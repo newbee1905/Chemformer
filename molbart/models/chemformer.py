@@ -635,6 +635,8 @@ class Chemformer:
                     }
                 )
 
+                print(metrics_unique)
+
                 drop_cols = [
                     "fraction_invalid",
                     "fraction_unique",
