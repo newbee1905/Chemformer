@@ -643,8 +643,10 @@ class Chemformer:
                 metrics_unique = {f"{key}(unique)": val for key, val in metrics_unique.items() if key not in drop_cols}
                 metrics.update(metrics_unique)
 
-						print(metrics)
+            print(metrics)
 
             for callback in self.trainer.callbacks:
                 if not isinstance(callback, pl.callbacks.progress.ProgressBar):
                     callback.on_test_batch_end(self.trainer, self.model, metrics, batch, b_idx, 0)
+
+# vim: ts=4 sw=4 expandtab
