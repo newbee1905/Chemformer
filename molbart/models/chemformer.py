@@ -16,6 +16,8 @@ from molbart.utils.samplers import BeamSearchSampler
 from molbart.utils.tokenizers import ChemformerTokenizer
 from molbart.utils import trainer_utils
 
+from tqdm.auto import tqdm
+
 DEFAULT_WEIGHT_DECAY = 0
 
 
