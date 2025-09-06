@@ -6,7 +6,7 @@ set -euo pipefail
 
 # Configuration
 TASK=${1:-backward_prediction}  # backward_prediction, forward_prediction, mol_opt
-DATA_PATH=${2:-data/uspto_100.pickle}
+DATA_PATH=${2:-data/uspto_5k.pickle}
 MODEL_PATH=${3:-models/pre-trained/combined/step1000000.ckpt}  # null for from scratch
 OUTPUT_DIR=${4:-outputs/fine_tune_$(date +%Y%m%d_%H%M%S)}
 
