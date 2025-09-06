@@ -97,5 +97,7 @@ class ScoreCollection(BaseCollection):
         scores = []
         for score in self._items.values():
             scores.append(score(sampled_smiles, target_smiles))
-						print(f"{score}: {score(sampled_smiles, target_smiles)}")
+            print(f"{score}: {score(sampled_smiles, target_smiles)}")
         return self._unravel_list_dict(scores)
+
+# vim: ts=4 sw=4 expandtab
