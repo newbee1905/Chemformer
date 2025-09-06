@@ -520,7 +520,7 @@ class LMDBDataset(Dataset):
         )
 
     def __len__(self) -> int:
-        return len(self.keys)
+        return len(self.indices)
 
     def __getitem__(self, item: int) -> Dict[str, Any]:
         if self._env is None:
