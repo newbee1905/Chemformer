@@ -18,7 +18,7 @@ from molbart.data.util import BatchEncoder, build_attention_mask, build_target_m
 from molbart.utils.tokenizers import ChemformerTokenizer, TokensMasker
 
 import lmdb
-
+import pickle
 
 class ChemistryDataset(Dataset):
     """
