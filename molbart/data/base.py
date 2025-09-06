@@ -17,6 +17,8 @@ from pysmilesutils.datautils import ChunkBatchSampler
 from molbart.data.util import BatchEncoder, build_attention_mask, build_target_mask
 from molbart.utils.tokenizers import ChemformerTokenizer, TokensMasker
 
+import lmdb
+
 
 class ChemistryDataset(Dataset):
     """
