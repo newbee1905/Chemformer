@@ -603,7 +603,6 @@ class Chemformer:
 
         if output_scores and output_sampled_smiles:
             for callback in self.trainer.callbacks:
-                print(callback)
                 if hasattr(callback, "set_output_files"):
                     callback.set_output_files(output_scores, output_sampled_smiles)
 
@@ -617,10 +616,31 @@ class Chemformer:
         self.model.eval()
         self.model.to(self.device)
 
+        display_keys = [
+            "test_loss",
+            "test_token_accuracy",
+            "top_1_accuracy",
+            "top_5_accuracy",
+        ]
         pbar = tqdm(dataloader, desc="Testing")
         for b_idx, batch in enumerate(pbar):
             batch = self.on_device(batch)
             metrics = self.model.test_step(batch, b_idx)
+
+            if "sampled_smiles" in metrics and "target_smiles" in metrics:
+                top_1_hits = []
+                top_5_hits = []
+                
+                for target, samples in zip(metrics["target_smiles"], metrics["sampled_smiles"]):
+                    if samples and samples[0] == target:
+                        top_1_hits.append(1)
+                    else:
+                        top_1_hits.append(0)
+                    
+                    if target in samples[:5]:
+                        top_5_hits.append(1)
+                    else:
+                        top_5_hits.append(0)
 
             if self.model.sampler.sample_unique:
                 sampled_smiles_unique = self.model.sampler.smiles_unique
@@ -649,12 +669,13 @@ class Chemformer:
 
             postfix_metrics = {}
             for key, val in metrics.items():
-                if hasattr(val, 'item'):
-                    postfix_metrics[key] = f"{val.item():.4f}"
-                elif isinstance(val, float):
-                    postfix_metrics[key] = f"{val:.4f}"
-                elif isinstance(val, int):
-                    postfix_metrics[key] = val
+                if any(key.startswith(d_key) for d_key in display_keys):
+                    if hasattr(val, 'item'):  # For PyTorch tensors
+                        postfix_metrics[key] = f"{val.item():.4f}"
+                    elif isinstance(val, (float, np.floating)):
+                        postfix_metrics[key] = f"{val:.4f}"
+                    elif isinstance(val, (int, np.integer)):
+                        postfix_metrics[key] = val
 
             pbar.set_postfix(postfix_metrics)
 
