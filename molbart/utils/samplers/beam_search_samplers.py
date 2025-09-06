@@ -154,6 +154,8 @@ class BeamSearchSampler:
                     self.log_lhs_unique,
                 ) = smiles_utils.uniqueify_sampled_smiles(sampled_smiles, log_lhs, model.n_unique_beams)
 
+				print(sampled_smiles[0])
+
         if return_tokenized:
             return Y, log_lhs
         else:
