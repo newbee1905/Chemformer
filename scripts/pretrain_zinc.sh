@@ -1,0 +1,21 @@
+python -m molbart.pretrain \
+  data_path=data/zinc/ \
+  vocabulary_path=bart_vocab.json \
+  dataset_type=zinc \
+  task=mask_aug \
+  mask_scheme=span \
+  mask_prob=0.10 \
+  model_type=bart \
+  learning_rate=1.0 \
+  schedule=transformer \
+  warm_up_steps=8000 \
+  n_epochs=50 \
+  batch_size=128 \
+  acc_batches=1 \
+  n_gpus=1 \
+  d_model=512 \
+  n_layers=6 \
+  n_heads=8 \
+  d_feedforward=2048 \
+  activation=gelu \
+  max_seq_len=512
