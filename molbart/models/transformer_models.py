@@ -536,10 +536,10 @@ class CycleConsistencyBARTModel(BARTModel):
         retro_batch = {
             "encoder_input": predicted_product_ids,
             "encoder_pad_mask": predicted_product_mask,
-            "decoder_input": batch["encoder_input"][:, :-1],
-            "decoder_pad_mask": batch["encoder_pad_mask"][:, :-1],
-            "target": batch["encoder_input"][:, 1:],
-            "target_mask": batch["encoder_pad_mask"][:, 1:]
+            "decoder_input": batch["encoder_input"][:-1, :],
+            "decoder_pad_mask": batch["encoder_pad_mask"][:-1, :],
+            "target": batch["encoder_input"][1:, :],
+            "target_mask": batch["encoder_pad_mask"][1:, :],
         }
 
         retro_output = self.forward(retro_batch)
