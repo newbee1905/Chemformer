@@ -5,6 +5,7 @@ from functools import partial
 import pytorch_lightning as pl
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torch.optim.lr_scheduler import OneCycleLR
 
 from molbart.models import _AbsTransformerModel
