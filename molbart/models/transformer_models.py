@@ -548,14 +548,14 @@ class CycleConsistencyBARTModel(BARTModel):
 
         # Get the hidden state of the [EOS] token from the FORWARD pass decoder
         forward_target_ids = batch["target"]
-        forward_eos_indices = (forward_target_ids == self.tokenizer["end"]) | (forward_target_ids == self.pad_token_idx)
+        forward_eos_indices = (forward_target_ids == self.sampler.tokenizer["end"]) | (forward_target_ids == self.pad_token_idx)
         forward_eos_locs = forward_eos_indices.long().argmax(dim=0)
         forward_decoder_memory = forward_output["model_output"]
         product_eos_repr = forward_decoder_memory[forward_eos_locs, torch.arange(forward_decoder_memory.size(1))]
 
         # Get the hidden state of the [EOS] token from the RETRO pass decoder
         retro_target_ids = retro_batch["target"]
-        retro_eos_indices = (retro_target_ids == self.tokenizer["end"]) | (retro_target_ids == self.pad_token_idx)
+        retro_eos_indices = (retro_target_ids == self.sampler.tokenizer["end"]) | (retro_target_ids == self.pad_token_idx)
         retro_eos_locs = retro_eos_indices.long().argmax(dim=0)
         retro_decoder_memory = retro_output["model_output"]
         reactant_eos_repr = retro_decoder_memory[retro_eos_locs, torch.arange(retro_decoder_memory.size(1))]
