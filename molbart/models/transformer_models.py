@@ -530,7 +530,7 @@ class CycleConsistencyBARTModel(BARTModel):
 
 
         with torch.no_grad():
-            predicted_product_ids = torch.argmax(forward_logits, dim=-1)
+            predicted_product_ids = torch.argmax(forward_output["token_output"], dim=-1)
             predicted_product_mask = batch["target_mask"].clone()
 
         retro_batch = {
