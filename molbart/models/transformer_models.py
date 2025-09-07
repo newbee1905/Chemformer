@@ -511,3 +511,70 @@ class UnifiedModel(_AbsTransformerModel):
         mask = torch.cat((enc_mask, dec_mask), dim=1)
         mask = mask.masked_fill(mask == 1, float("-inf"))
         return mask
+
+class CycleConsistencyBARTModel(BARTModel):
+    def __init__(self, *args, **kwargs):
+        self.w_retro = kwargs.pop("w_retro", 1.0)
+        self.w_kl = kwargs.pop("w_kl", 0.1)
+
+        super().__init__(*args, **kwargs)
+
+    def training_step(self, batch, batch_idx):
+        """
+        Overrides the original training_step to implement the composite loss.
+        L_total = L_forward + w_retro * L_retro + w_kl * L_KL
+        """
+
+        forward_output = self.forward(batch)
+        l_forward = self._calc_loss(batch, forward_output)
+
+
+        with torch.no_grad():
+            predicted_product_ids = torch.argmax(forward_logits, dim=-1)
+            predicted_product_mask = batch["target_mask"].clone()
+
+        retro_batch = {
+            "encoder_input": predicted_product_ids,
+            "encoder_pad_mask": predicted_product_mask,
+            "decoder_input": batch["encoder_input"][:, :-1],
+            "decoder_pad_mask": batch["encoder_pad_mask"][:, :-1],
+            "target": batch["encoder_input"][:, 1:],
+            "target_mask": batch["encoder_pad_mask"][:, 1:]
+        }
+
+        retro_output = self.forward(retro_batch)
+        l_retro = self._calc_loss(retro_batch, retro_output)
+
+
+        # Get the hidden state of the [EOS] token from the FORWARD pass decoder
+        forward_target_ids = batch["target"]
+        forward_eos_indices = (forward_target_ids == self.tokenizer["end"]) | (forward_target_ids == self.pad_token_idx)
+        forward_eos_locs = forward_eos_indices.long().argmax(dim=0)
+        forward_decoder_memory = forward_output["model_output"]
+        product_eos_repr = forward_decoder_memory[forward_eos_locs, torch.arange(forward_decoder_memory.size(1))]
+
+        # Get the hidden state of the [EOS] token from the RETRO pass decoder
+        retro_target_ids = retro_batch["target"]
+        retro_eos_indices = (retro_target_ids == self.tokenizer["end"]) | (retro_target_ids == self.pad_token_idx)
+        retro_eos_locs = retro_eos_indices.long().argmax(dim=0)
+        retro_decoder_memory = retro_output["model_output"]
+        reactant_eos_repr = retro_decoder_memory[retro_eos_locs, torch.arange(retro_decoder_memory.size(1))]
+
+        l_kl = F.kl_div(
+            F.log_softmax(reactant_eos_repr, dim=-1),
+            F.softmax(product_eos_repr.detach(), dim=-1),
+            reduction='batchmean'
+        )
+
+        l_total = l_forward + (self.w_retro * l_retro) + (self.w_kl * l_kl)
+
+        self.log_dict({
+            "train_loss_total": l_total,
+            "train_loss_forward": l_forward,
+            "train_loss_retro": l_retro,
+            "train_loss_kl": l_kl
+        }, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
+
+        return l_total
+
+# vim: ts=4 sw=4 expandtab
