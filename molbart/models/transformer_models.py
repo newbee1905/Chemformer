@@ -577,7 +577,7 @@ class CycleConsistencyBARTModel(BARTModel):
             "train_loss_forward": l_forward,
             "train_loss_retro": l_retro,
             "train_loss_kl": l_kl
-        }, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
+        }, on_step=False, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
 
         return l_total
 
