@@ -30,7 +30,8 @@ class _AbsTransformerModel(pl.LightningModule):
         max_seq_len,
         schedule,
         warm_up_steps,
-        dropout=0.1,
+        optimizer="adam",
+        dropout=0.3,
         num_beams=10,
         **kwargs,
     ):
@@ -49,6 +50,7 @@ class _AbsTransformerModel(pl.LightningModule):
         self.max_seq_len = max_seq_len
         self.schedule = schedule
         self.warm_up_steps = warm_up_steps
+        self.optimizer = optimizer
         self.dropout = dropout
 
         if self.schedule == "transformer":
@@ -165,7 +167,29 @@ class _AbsTransformerModel(pl.LightningModule):
 
     def configure_optimizers(self):
         params = self.parameters()
-        optim = torch.optim.Adam(params, lr=self.lr, weight_decay=self.weight_decay, betas=(0.9, 0.999))
+
+        decay_params = []
+        no_decay_params = []
+        for name, param in self.named_parameters():
+            if not param.requires_grad:
+                continue
+            
+            if param.dim() == 1 or "bias" in name:
+                no_decay_params.append(param)
+            else:
+                decay_params.append(param)
+        
+        optimizer_grouped_parameters = [
+            {'params': decay_params, 'weight_decay': self.weight_decay},
+            {'params': no_decay_params, 'weight_decay': 0.0}
+        ]
+
+        if self.optimizer == "adam":
+            optim = torch.optim.Adam(optimizer_grouped_parameters, lr=self.lr, weight_decay=self.weight_decay, betas=(0.9, 0.999))
+        elif self.optimizer == "adamw":
+            optim = torch.optim.AdamW(optimizer_grouped_parameters, lr=self.lr, weight_decay=self.weight_decay, betas=(0.9, 0.999))
+        else:
+            raise ValueError(f"Invalid optimizer '{self.optimizer}'")
 
         if self.schedule == "const":
             print("Using constant LR schedule.")

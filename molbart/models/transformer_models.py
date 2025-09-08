@@ -33,6 +33,7 @@ class BARTModel(_AbsTransformerModel):
         max_seq_len,
         schedule="cycle",
         warm_up_steps=None,
+        optimizer="adam",
         dropout=0.1,
         **kwargs,
     ):
@@ -329,6 +330,7 @@ class UnifiedModel(_AbsTransformerModel):
         max_seq_len,
         schedule="cycle",
         warm_up_steps=None,
+        optimizer="adam",
         dropout=0.1,
         **kwargs,
     ):
@@ -574,7 +576,7 @@ class CycleConsistencyBARTModel(BARTModel):
             "train_loss_forward": l_forward,
             "train_loss_retro": l_retro,
             "train_loss_kl": l_kl
-        }, on_step=True, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
+        }, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
 
         return l_total
 

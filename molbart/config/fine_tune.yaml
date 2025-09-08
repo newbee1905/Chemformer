@@ -50,6 +50,7 @@ train_mode: training
 n_beams: 1
 
 schedule: cycle
+optimizer: adam
 warm_up_steps: 8000
 
 datamodule:
