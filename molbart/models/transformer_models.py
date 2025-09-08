@@ -51,6 +51,7 @@ class BARTModel(_AbsTransformerModel):
             max_seq_len,
             schedule,
             warm_up_steps,
+            optimizer,
             dropout,
             **kwargs,
         )

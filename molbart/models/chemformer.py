@@ -18,7 +18,7 @@ from molbart.utils import trainer_utils
 
 from tqdm.auto import tqdm
 
-DEFAULT_WEIGHT_DECAY = 0
+DEFAULT_WEIGHT_DECAY = 0.0
 
 
 class Chemformer:
@@ -292,9 +292,9 @@ class Chemformer:
                 total_steps,
                 util.DEFAULT_MAX_SEQ_LEN,
                 schedule=args.get("schedule"),
+                optimizer=args.get("optimizer", "adam"),
                 dropout=util.DEFAULT_DROPOUT,
                 warm_up_steps=args.get("warm_up_steps"),
-                optimizer=args.get("optimizer", "adam"),
                 **extra_args,
             )
         elif self.model_type == "cycle_bart":
@@ -312,9 +312,9 @@ class Chemformer:
                 total_steps,
                 util.DEFAULT_MAX_SEQ_LEN,
                 schedule=args.get("schedule"),
+                optimizer=args.get("optimizer", "adam"),
                 dropout=util.DEFAULT_DROPOUT,
                 warm_up_steps=args.get("warm_up_steps"),
-                optimizer=args.get("optimizer", "adam"),
                 **extra_args,
                 w_retro=args.get("w_retro", 1.0), 
                 w_kl=args.get("w_kl", 0.1)
@@ -334,9 +334,9 @@ class Chemformer:
                 total_steps,
                 util.DEFAULT_MAX_SEQ_LEN,
                 schedule=args.get("schedule"),
+                optimizer=args.get("optimizer", "adam"),
                 dropout=util.DEFAULT_DROPOUT,
                 warm_up_steps=args.get("warm_up_steps"),
-                optimizer=args.get("optimizer", "adam"),
                 **extra_args,
             )
         else:
@@ -379,8 +379,8 @@ class Chemformer:
                         lr=args.learning_rate,
                         weight_decay=args.weight_decay,
                         schedule=args.schedule,
-                        warm_up_steps=args.warm_up_steps,
                         optimizer=args.get("optimizer", "adam"),
+                        warm_up_steps=args.warm_up_steps,
                         **extra_args,
                     )
             elif (
