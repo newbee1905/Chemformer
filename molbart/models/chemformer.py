@@ -381,7 +381,6 @@ class Chemformer:
                         schedule=args.schedule,
                         warm_up_steps=args.warm_up_steps,
                         optimizer=args.get("optimizer", "adam"),
-                        optimizer=args.get("optimizer", "adam"),
                         **extra_args,
                     )
             elif (
