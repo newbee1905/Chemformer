@@ -603,7 +603,7 @@ class DifferentiableCycleBARTModel(BARTModel):
         """
 
         probs = F.softmax(logits / self.temperature, dim=-1)
-        token_embeddings = self.embed.weight
+        token_embeddings = self.emb.weight
         
         # Compute soft embeddings via matrix multiplication (weighted average)
         # (seq, batch, vocab_size) @ (vocab_size, d_model) -> (seq, batch, d_model)
