@@ -581,4 +581,133 @@ class CycleConsistencyBARTModel(BARTModel):
 
         return l_total
 
+class DifferentiableCycleBARTModel(BARTModel):
+    """
+    A BART-style model that uses a fully differentiable cycle-consistency loss
+    for training. 
+
+    It avoids the non-differentiable `argmax` operation by creating
+    "soft" embeddings of the predicted product, allowing gradients to flow
+    end-to-end.
+    """
+    def __init__(self, *args, **kwargs):
+        self.w_cycle = kwargs.pop("w_cycle", 1.0)
+        self.w_kl = kwargs.pop("w_kl", 0.1)
+        self.temperature = kwargs.pop("temperature", 1.0)
+        
+        super().__init__(*args, **kwargs)
+
+    def _logits_to_soft_embeddings(self, logits):
+        """
+        Converts decoder logits into a differentiable, "soft" embedding sequence.
+        """
+
+        probs = F.softmax(logits / self.temperature, dim=-1)
+        token_embeddings = self.src_embed.weight
+        
+        # Compute soft embeddings via matrix multiplication (weighted average)
+        # (seq, batch, vocab_size) @ (vocab_size, d_model) -> (seq, batch, d_model)
+        soft_embeddings = torch.matmul(probs, token_embeddings)
+        
+        return soft_embeddings
+
+    def _decode_from_soft_embeddings(
+        self, soft_encoder_embeddings, decoder_input,
+        decoder_pad_mask, encoder_pad_mask,
+    ):
+        """
+        Performs a decoder pass using soft embeddings directly as the encoder memory.
+        This is used for the reverse step of the cycle.
+        """
+
+        decoder_embeddings = self._construct_input(decoder_input)
+        decoder_pad_mask = decoder_pad_mask.transpose(0, 1)
+        encoder_pad_mask = encoder_pad_mask.transpose(0, 1)
+        
+        seq_len, _, _ = decoder_embeddings.size()
+        tgt_mask = self._generate_square_subsequent_mask(seq_len, device=decoder_embeddings.device)
+        
+        decoder_output = self.decoder(
+            decoder_embeddings,
+            soft_encoder_embeddings,
+            tgt_key_padding_mask=decoder_pad_mask,
+            memory_key_padding_mask=encoder_pad_mask,
+            tgt_mask=tgt_mask,
+        )
+        
+        token_output = self.token_fc(decoder_output)
+        return {
+            "model_output": decoder_output,
+            "token_output": token_output,
+        }
+
+    def training_step(self, batch, batch_idx):
+        """
+        Implements the fully differentiable composite loss.
+        L_total = L_forward + w_cycle * L_cycle + w_kl * L_KL
+        """
+
+        forward_output = self.forward(batch)
+        l_forward = self._calc_loss(batch, forward_output)
+
+        forward_logits = forward_output["token_output"]
+        soft_product_embeddings = self._logits_to_soft_embeddings(forward_logits)
+
+        reverse_output = self._decode_from_soft_embeddings(
+            soft_encoder_embeddings=soft_product_embeddings,
+            decoder_input=batch["encoder_input"],
+            decoder_pad_mask=batch["encoder_pad_mask"],
+            encoder_pad_mask=batch["decoder_pad_mask"]
+        )
+
+        cycle_target_batch = {
+            "target": batch["encoder_input"],
+            "target_mask": batch["encoder_pad_mask"]
+        }
+        l_cycle = self._calc_loss(cycle_target_batch, reverse_output)
+
+        batch_size = forward_decoder_memory.size(1)
+
+        forward_decoder_memory = forward_output["model_output"]
+        forward_lengths = (~batch["decoder_pad_mask"]).sum(dim=0)
+        forward_last_indices = forward_lengths - 1
+        
+        product_last_token_repr = forward_decoder_memory[forward_last_indices, torch.arange(batch_size)]
+
+        reverse_decoder_memory = reverse_output["model_output"]
+        reverse_lengths = (~batch["encoder_pad_mask"]).sum(dim=0)
+        reverse_last_indices = reverse_lengths - 1
+        
+        reactant_last_token_repr = reverse_decoder_memory[reverse_last_indices, torch.arange(batch_size)]
+
+        p_dist = F.softmax(product_last_token_repr.detach(), dim=-1)
+        q_dist = F.softmax(reactant_last_token_repr, dim=-1)
+
+        # Average distribution 'm'
+        m_dist = 0.5 * (p_dist + q_dist)
+        log_m_dist = m_dist.log()
+
+        # KL(P || M)
+        kl_p_m = F.kl_div(log_m_dist, p_dist, reduction='batchmean')
+        
+        # KL(Q || M)
+        kl_q_m = F.kl_div(log_m_dist, q_dist, reduction='batchmean')
+
+        l_js = 0.5 * (kl_p_m + kl_q_m)
+
+        # l_kl = F.kl_div(q_dist.log(), p_dist, reduction='batchmean')
+        # l_total = l_forward + (self.w_cycle * l_cycle) + (self.w_kl * l_kl)
+
+        l_total = l_forward + (self.w_cycle * l_cycle) + (self.w_kl * l_js)
+
+        self.log_dict({
+            "train_loss_total": l_total,
+            "train_loss_forward": l_forward,
+            "train_loss_cycle": l_cycle,
+            # "train_loss_kl": l_kl
+            "train_loss_js": l_js
+        }, prog_bar=True, logger=True, sync_dist=True)
+
+        return l_total
+
 # vim: ts=4 sw=4 expandtab

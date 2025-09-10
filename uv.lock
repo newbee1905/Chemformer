@@ -200,7 +200,7 @@ requires-dist = [
     { name = "hydra-optuna-sweeper", specifier = ">=1.2.0" },
     { name = "lmdb", specifier = ">=1.7.3" },
     { name = "pandas", specifier = "==1.3.5" },
-    { name = "pysmilesutils", git = "https://github.com/MolecularAI/pysmilesutils" },
+    { name = "pysmilesutils", git = "https://github.com/MolecularAI/pysmilesutils.git" },
     { name = "pytorch-lightning", specifier = "==1.2.3" },
     { name = "rdkit", specifier = "==2022.9.3" },
     { name = "torch", specifier = "==1.8.1" },
@@ -875,7 +875,7 @@ wheels = [
 [[package]]
 name = "pysmilesutils"
 version = "1.1.0"
-source = { git = "https://github.com/MolecularAI/pysmilesutils#98b1f438578b624af3033e33435a8762c02d8093" }
+source = { git = "https://github.com/MolecularAI/pysmilesutils.git#98b1f438578b624af3033e33435a8762c02d8093" }
 
 [[package]]
 name = "python-dateutil"
