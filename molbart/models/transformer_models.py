@@ -666,9 +666,8 @@ class DifferentiableCycleBARTModel(BARTModel):
         }
         l_cycle = self._calc_loss(cycle_target_batch, reverse_output)
 
-        batch_size = forward_decoder_memory.size(1)
-
         forward_decoder_memory = forward_output["model_output"]
+        batch_size = forward_decoder_memory.size(1)
         forward_lengths = (~batch["decoder_pad_mask"]).sum(dim=0)
         forward_last_indices = forward_lengths - 1
         
