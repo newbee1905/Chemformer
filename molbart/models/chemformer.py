@@ -339,8 +339,8 @@ class Chemformer:
                 warm_up_steps=args.get("warm_up_steps"),
                 **extra_args,
                 w_retro=args.get("w_retro", 1.0), 
-                w_kl=args.get("w_kl", 0.1)
-                temperature=args.get("temperature", 1.0)
+                w_kl=args.get("w_kl", 0.1),
+                temperature=args.get("temperature", 1.0),
             )
         elif self.model_type == "unified":
             model = UnifiedModel(
