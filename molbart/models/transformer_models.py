@@ -587,7 +587,7 @@ class CycleConsistencyBARTModel(BARTModel):
         retro_decoder_memory = retro_output["model_output"]
         reactant_eos_repr = retro_decoder_memory[retro_eos_locs, torch.arange(retro_decoder_memory.size(1))]
 
-        l_cos = 1.0 - cos_sim_loss_fn(reactant_eos_repr, product_eos_repr.detach()).mean()
+        l_cos = 1.0 - self.cos_sim_fn(reactant_eos_repr, product_eos_repr.detach()).mean()
 
         l_total = l_forward + (self.w_retro * l_retro) + (self.w_cos * l_cos)
 
