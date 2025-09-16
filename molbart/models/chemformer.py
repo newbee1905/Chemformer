@@ -317,7 +317,8 @@ class Chemformer:
                 warm_up_steps=args.get("warm_up_steps"),
                 **extra_args,
                 w_retro=args.get("w_retro", 1.0), 
-                w_kl=args.get("w_kl", 0.1)
+                w_cos=args.get("w_cos", 0.1)
+                gumbel_tau=args.get("gumbel_tau", 1.0),
             )
         elif self.model_type == "diff_cycle_bart":
             model = DifferentiableCycleBARTModel(
@@ -427,7 +428,8 @@ class Chemformer:
                         pad_token_idx=pad_token_idx,
                         vocabulary_size=self.vocabulary_size,
                         w_retro=args.get("w_retro", 1.0),
-                        w_kl=args.get("w_kl", 0.1),
+                        w_cos=args.get("w_cos", 0.1),
+                        gumbel_tau=args.get("gumbel_tau", 1.0),
                     )
                 else:
                     model = CycleConsistencyBARTModel.load_from_checkpoint(
@@ -443,7 +445,8 @@ class Chemformer:
                         optimizer=args.get("optimizer", "adam"),
                         **extra_args,
                         w_retro=args.get("w_retro", 1.0),
-                        w_kl=args.get("w_kl", 0.1),
+                        w_cos=args.get("w_cos", 0.1),
+                        gumbel_tau=args.get("gumbel_tau", 1.0),
                     )
             elif (
                 self.train_mode == "validation"
@@ -456,7 +459,8 @@ class Chemformer:
                     self.model_path, 
                     decode_sampler=self.sampler,
                     w_retro=args.get("w_retro", 1.0),
-                    w_kl=args.get("w_kl", 0.1),
+                    w_cos=args.get("w_cos", 0.1),
+                    gumbel_tau=args.get("gumbel_tau", 1.0),
                 )
 
                 model.eval()
