@@ -33,7 +33,7 @@ class BARTModel(_AbsTransformerModel):
         schedule="cycle",
         warm_up_steps=None,
         optimizer="adam",
-        dropout=0.1,
+        dropout=0.3,
         **kwargs,
     ):
         super().__init__(
