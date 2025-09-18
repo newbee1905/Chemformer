@@ -216,8 +216,10 @@ class _AbsDataModule(pl.LightningDataModule):
             decoder_mask,
             smiles,
         ) = self._transform_batch(batch, train)
+
         if self.unified_model:
             return self._make_unified_model_batch(encoder_ids, encoder_mask, decoder_ids, decoder_mask, smiles)
+
         return {
             "encoder_input": encoder_ids,
             "encoder_pad_mask": encoder_mask,

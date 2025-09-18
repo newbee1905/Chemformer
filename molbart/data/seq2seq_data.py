@@ -98,6 +98,64 @@ class UsptoSepDataModule(ReactionListDataModule):
         }
         self._set_split_indices_from_dataframe(df)
 
+class UsptoCycleDataModule(ReactionListDataModule):
+    """
+    DataModule for the USPTO-Separated dataset
+
+    The reactants, reagents and products are read from
+    a pickled DataFrame
+    """
+
+    def _get_sequences(self, batch: List[Dict[str, Any]], train: bool) -> Tuple[List[str], List[str]]:
+        r_smi = [Chem.MolToSmiles(item["reactants_mol"]) for item in batch]
+        g_smi = [Chem.MolToSmiles(item["reagents_mol"]) for item in batch]
+        p_smi = [Chem.MolToSmiles(item["products_mol"]) for item in batch]
+
+        if train:
+            r_smi = self._batch_augmenter(r_smi)
+            g_smi = self._batch_augmenter(g_smi)
+            p_smi = self._batch_augmenter(p_smi)
+
+        # reactants = [react_smi + "<SEP>" + reag_smi for react_smi, reag_smi in zip(reactants, reagents)]
+        rg_smi = [r + "<SEP>" + g for r, g in zip(r_smi, g_smi)]
+
+        return rg_smi, p_smi, r_smi, g_smi
+
+    def _load_all_data(self) -> None:
+        df = pd.read_pickle(self.dataset_path).reset_index()
+        self._all_data = {
+            "reactants_mol": df["reactants_mol"].tolist(),
+            "products_mol": df["products_mol"].tolist(),
+            "reagents_mol": df["reagents_mol"].tolist(),
+        }
+        self._set_split_indices_from_dataframe(df)
+
+    def _collate(self, batch: List[Dict[str, Any]], train: bool = True) -> Dict[str, Any]:
+        rg_smi, p_smi, r_smi, g_smi = self._get_sequences(batch, train)
+
+        encoder_ids, encoder_mask = self._encoder(rg_smi) # Main task input
+        decoder_ids, decoder_mask = self._encoder(p_smi) # Main task target
+
+        reactants_ids, reactants_mask = self._encoder(r_smi) # Cycle task target
+        reagents_ids, reagents_mask = self._encoder(g_smi)   # Cycle task input part
+
+        return {
+            # Main Task
+            "encoder_input": encoder_ids,
+            "encoder_pad_mask": encoder_mask,
+            "decoder_input": decoder_ids[:-1, :],
+            "decoder_pad_mask": decoder_mask[:-1, :],
+            "target": decoder_ids.clone()[1:, :],
+            "target_mask": decoder_mask.clone()[1:, :],
+            "target_smiles": products_smi,
+            
+            # Cycle Task components
+            "reactants_ids": reactants_ids,
+            "reactants_mask": reactants_mask,
+            "reagents_ids": reagents_ids,
+            "reagents_mask": reagents_mask,
+        }
+
 
 class MolecularOptimizationDataModule(ReactionListDataModule):
     """

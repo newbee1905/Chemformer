@@ -84,6 +84,89 @@ class BatchEncoder:
         masks = [([0] * len(seq)) + ([1] * (pad_length - len(seq))) for seq in seqs]
         return padded, masks
 
+    def merge_and_rebatch(
+        self,
+        id_tensor1: torch.Tensor,
+        mask_tensor1: torch.Tensor,
+        id_tensor2: torch.Tensor,
+        mask_tensor2: torch.Tensor,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Merges two batches of encoded sequences using vectorized operations.
+
+        The process for each pair of sequences is:
+        1. De-pad the sequences.
+        2. Remove the trailing EOS token.
+        3. Concatenate seq1, a SEP token, and seq2.
+        4. Append a new EOS token.
+        5. Re-pad the new batch of merged sequences using torch.nn.pad_sequence.
+        6. Truncate if longer than max_seq_len.
+
+        :param id_tensor1: The first batch of token ID tensors (seq_len, batch_size).
+        :param mask_tensor1: The first batch of padding mask tensors.
+        :param id_tensor2: The second batch of token ID tensors.
+        :param mask_tensor2: The second batch of padding mask tensors.
+        :return: A tuple containing the new merged and padded ID and mask tensors.
+        """
+
+        device = id_tensor1.device
+        if id_tensor2.device != device or mask_tensor1.device != device or mask_tensor2.device != device:
+             raise ValueError("All input tensors must be on the same device.")
+
+        pad_id = self._tokenizer.convert_tokens_to_ids([self._tokenizer.special_tokens["pad"]])[0].item()
+        sep_id = self._tokenizer.convert_tokens_to_ids([self._tokenizer.special_tokens["sep"]])[0].item()
+        eos_id = self._tokenizer.convert_tokens_to_ids([self._tokenizer.special_tokens["eos"]])[0].item()
+        
+        # Transpose to (batch_size, seq_len) for easier processing
+        id_tensor1, mask_tensor1 = id_tensor1.transpose(0, 1), mask_tensor1.transpose(0, 1)
+        id_tensor2, mask_tensor2 = id_tensor2.transpose(0, 1), mask_tensor2.transpose(0, 1)
+
+        batch_size = id_tensor1.shape[0]
+
+        # 1. Vectorized calculation of sequence lengths
+        lengths1 = (~mask_tensor1).sum(dim=1)
+        lengths2 = (~mask_tensor2).sum(dim=1)
+
+        # 2. Vectorized removal of EOS token from lengths
+        batch_indices = torch.arange(batch_size, device=device)
+        
+        # For batch 1
+        last_token_indices1 = (lengths1 - 1).clamp(min=0)
+        last_tokens1 = id_tensor1[batch_indices, last_token_indices1]
+        is_eos1 = (last_tokens1 == eos_id) & (lengths1 > 0)
+        new_lengths1 = lengths1 - is_eos1.long()
+
+        # For batch 2
+        last_token_indices2 = (lengths2 - 1).clamp(min=0)
+        last_tokens2 = id_tensor2[batch_indices, last_token_indices2]
+        is_eos2 = (last_tokens2 == eos_id) & (lengths2 > 0)
+        new_lengths2 = lengths2 - is_eos2.long()
+
+        sep_tensor = torch.tensor([sep_id], dtype=torch.long, device=device)
+        eos_tensor = torch.tensor([eos_id], dtype=torch.long, device=device)
+
+        merged_sequences = [
+            torch.cat([
+                id_tensor1[i, :new_lengths1[i]],
+                sep_tensor,
+                id_tensor2[i, :new_lengths2[i]],
+                eos_tensor
+            ]) for i in range(batch_size)
+        ]
+
+        # 4. Pad the new batch using optimized PyTorch utility
+        padded_ids = pad_sequence(merged_sequences, batch_first=True, padding_value=pad_id)
+
+        # 5. Check sequence length and truncate if necessary
+        if padded_ids.shape[1] > self._max_seq_len:
+            print(f"WARNING -- Merged sequence length {padded_ids.shape[1]} is > {self._max_seq_len}, truncating.")
+            padded_ids = padded_ids[:, :self._max_seq_len]
+
+        # 6. Create the new padding mask and transpose to (seq_len, batch_size)
+        final_mask = (padded_ids == pad_id)
+        
+        return padded_ids.transpose(0, 1), final_mask.transpose(0, 1)
+
 
 def build_attention_mask(enc_length: int, dec_length: int) -> torch.Tensor:
     """
