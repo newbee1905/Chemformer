@@ -31,19 +31,7 @@ class CycleConsistencyBARTModel(BARTModel):
         hidden_states: torch.Tensor, 
         target_ids: torch.Tensor,
     ) -> torch.Tensor:
-        """Fallback EOS representation extraction with better handling."""
-
-        eos_token_id = getattr(
-            self.sampler.tokenizer, 'eos_token_id', 
-            self.sampler.tokenizer.token_to_idx.get("end", -1)
-        )
-        
-        # No EOS token defined, use last non-padded position
-        if eos_token_id == -1:
-            mask = target_ids != self.pad_token_idx
-            lengths = mask.sum(dim=0) - 1
-            lengths = torch.clamp(lengths, min=0, max=hidden_states.size(0)-1)
-            return hidden_states[lengths, torch.arange(hidden_states.size(1))]
+        eos_token_id = self.sampler.tokenizer["end"]
         
         eos_indices = (target_ids == eos_token_id)
         if eos_indices.any():
