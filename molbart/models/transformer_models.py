@@ -71,7 +71,8 @@ class BARTModel(_AbsTransformerModel):
             norm=nn.LayerNorm(d_model),
         )
 
-        self.loss_function = nn.CrossEntropyLoss(reduction="none", ignore_index=pad_token_idx)
+        self.pad_token_idx = pad_token_idx
+        self.loss_function = nn.CrossEntropyLoss(reduction="none", ignore_index=self.pad_token_idx)
 
         self.token_fc = nn.Linear(d_model, vocabulary_size)
         self.log_softmax = nn.LogSoftmax(dim=2)

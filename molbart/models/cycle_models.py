@@ -19,7 +19,7 @@ class CycleConsistencyBARTModel(BARTModel):
         super().__init__(*args, **kwargs)
 
         self.cos_sim_fn = nn.CosineSimilarity(dim=-1)
-        self.loss_function = nn.CrossEntropyLoss(reduction="none", ignore_index=pad_token_idx, label_smoothing=0.1)
+        self.loss_function = nn.CrossEntropyLoss(reduction="none", ignore_index=self.pad_token_idx, label_smoothing=0.1)
 
         self.max_tau = 2.0
         self.min_tau = 0.5
