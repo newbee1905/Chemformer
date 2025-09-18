@@ -16,15 +16,15 @@ class CycleConsistencyBARTModel(BARTModel):
         self.w_cos = kwargs.pop("w_cos", 0.5)
         # self.gumbel_tau = kwargs.pop("gumbel_tau", 1.0)
 
-        self.max_tau = 2.0
-        self.min_tau = 0.5
-
-        self.tau_decay_steps = self.num_steps * 0.75
-
         super().__init__(*args, **kwargs)
 
         self.cos_sim_fn = nn.CosineSimilarity(dim=-1)
         self.loss_function = nn.CrossEntropyLoss(reduction="none", ignore_index=pad_token_idx, label_smoothing=0.1)
+
+        self.max_tau = 2.0
+        self.min_tau = 0.5
+
+        self.tau_decay_steps = self.num_steps * 0.75
 
     def _get_eos_representation(
         self, 
