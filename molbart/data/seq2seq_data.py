@@ -1,4 +1,6 @@
 """ Module containing classes to load seq2seq data"""
+import os
+import sys
 import pandas as pd
 from rdkit import Chem
 from typing import Any, Dict, List, Tuple
@@ -112,14 +114,17 @@ class UsptoCycleDataModule(ReactionListDataModule):
         p_smi = [Chem.MolToSmiles(item["products_mol"]) for item in batch]
 
         if train:
+            sys.stdout = open(os.devnull, 'w')
             r_smi = self._batch_augmenter(r_smi)
             g_smi = self._batch_augmenter(g_smi)
             p_smi = self._batch_augmenter(p_smi)
+            sys.stdout = sys.__stdout__
 
         # reactants = [react_smi + "<SEP>" + reag_smi for react_smi, reag_smi in zip(reactants, reagents)]
         rg_smi = [r + "<SEP>" + g for r, g in zip(r_smi, g_smi)]
+        pg_smi = [p + "<SEP>" + g for p, g in zip(p_smi, g_smi)]
 
-        return rg_smi, p_smi, r_smi, g_smi
+        return rg_smi, p_smi, r_smi, pg_smi
 
     def _load_all_data(self) -> None:
         df = pd.read_pickle(self.dataset_path).reset_index()
@@ -131,13 +136,16 @@ class UsptoCycleDataModule(ReactionListDataModule):
         self._set_split_indices_from_dataframe(df)
 
     def _collate(self, batch: List[Dict[str, Any]], train: bool = True) -> Dict[str, Any]:
-        rg_smi, p_smi, r_smi, g_smi = self._get_sequences(batch, train)
+        rg_smi, p_smi, r_smi, pg_smi = self._get_sequences(batch, train)
 
-        encoder_ids, encoder_mask = self._encoder(rg_smi) # Main task input
-        decoder_ids, decoder_mask = self._encoder(p_smi) # Main task target
+        encoder_ids, encoder_mask = self._encoder(rg_smi)
+        decoder_ids, decoder_mask = self._encoder(p_smi)
 
-        reactants_ids, reactants_mask = self._encoder(r_smi) # Cycle task target
-        reagents_ids, reagents_mask = self._encoder(g_smi)   # Cycle task input part
+        reactants_ids, reactants_mask = self._encoder(r_smi)
+        retro_ids, retro_mask = self._encoder(pg_smi)
+
+        product_lengths = decoder_mask.sum(dim=0).long()
+        reactant_lengths = reactants_mask.sum(dim=0).long()
 
         return {
             # Main Task
@@ -147,13 +155,16 @@ class UsptoCycleDataModule(ReactionListDataModule):
             "decoder_pad_mask": decoder_mask[:-1, :],
             "target": decoder_ids.clone()[1:, :],
             "target_mask": decoder_mask.clone()[1:, :],
-            "target_smiles": products_smi,
+            "target_smiles": p_smi,
             
             # Cycle Task components
             "reactants_ids": reactants_ids,
             "reactants_mask": reactants_mask,
-            "reagents_ids": reagents_ids,
-            "reagents_mask": reagents_mask,
+            "retro_ids": retro_ids,
+            "retro_mask": retro_mask,
+
+            "product_lengths": product_lengths,
+            "reactant_lengths": reactant_lengths,
         }
 
 
@@ -204,6 +215,10 @@ class UsptoSepDataModuleLMDB(UsptoSepDataModule):
     def setup(self, stage: str = None):
         _setup_lmdb_datasets(self)
 
+class UsptoCycleDataModuleLMDB(UsptoCycleDataModule):
+    """DataModule for the USPTO-Separated dataset from an LMDB database."""
+    def setup(self, stage: str = None):
+        _setup_lmdb_datasets(self)
 
 class MolecularOptimizationDataModuleLMDB(MolecularOptimizationDataModule):
     """DataModule for molecular optimization from an LMDB database."""

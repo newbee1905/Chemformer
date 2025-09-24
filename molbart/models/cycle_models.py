@@ -62,8 +62,8 @@ class CycleConsistencyBARTModel(BARTModel):
         soft_product_embs = torch.matmul(predicted_product_probs, self.emb.weight)
         soft_product_embs = soft_product_embs * math.sqrt(self.d_model)
         seq_len, _, _ = soft_product_embs.size()
-        positional_embs = self.pos_emb[:seq_len, :].unsqueeze(1)
-        retro_encoder_embs = self.dropout(soft_product_embs + positional_embs)
+        pos_embs = self.pos_emb[:seq_len, :].unsqueeze(1)
+        retro_encoder_embs = self.dropout(soft_product_embs + pos_embs)
 
         retro_encoder_pad_mask = batch["target_mask"].clone().transpose(0, 1)
         retro_memory = self.encoder(retro_encoder_embs, src_key_padding_mask=retro_encoder_pad_mask)
@@ -110,6 +110,27 @@ class CycleConsistencySepBARTModel(CycleConsistencyBARTModel):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
+    def _prepare_retro_input(self, soft_product_embs, batch):
+        device = soft_product_embs.device
+        product_lengths = batch["product_lengths"]
+        retro_ids = batch["retro_ids"]
+
+        seq_len_prod = soft_product_embs.size(0)
+        seq_len_retro = retro_ids.size(0)
+
+        retro_embs_template = self.emb(retro_ids) * math.sqrt(self.d_model)
+
+        src_prod_mask = torch.arange(seq_len_prod, device=device)[:, None] < product_lengths[None, :]
+        dest_prod_mask = torch.arange(seq_len_retro, device=device)[:, None] < product_lengths[None, :]
+
+        final_retro_embs = retro_embs_template
+        final_retro_embs[dest_prod_mask] = soft_product_embs[src_prod_mask]
+        
+        pos_embs = self.pos_emb[:seq_len_retro, :].unsqueeze(1)
+        final_retro_embs = self.dropout(final_retro_embs + pos_embs)
+
+        return final_retro_embs
+
     def training_step(self, batch, batch_idx):
         """
         Overrides the original training_step to implement the composite loss.
@@ -131,14 +152,15 @@ class CycleConsistencySepBARTModel(CycleConsistencyBARTModel):
         soft_product_embs = torch.matmul(predicted_product_probs, self.emb.weight)
         soft_product_embs = soft_product_embs * math.sqrt(self.d_model)
         seq_len, _, _ = soft_product_embs.size()
-        positional_embs = self.pos_emb[:seq_len, :].unsqueeze(1)
-        retro_encoder_embs = self.dropout(soft_product_embs + positional_embs)
+        pos_embs = self.pos_emb[:seq_len, :].unsqueeze(1)
+        soft_product_embs = self.dropout(soft_product_embs + pos_embs)
 
-        retro_encoder_pad_mask = batch["target_mask"].clone().transpose(0, 1)
+        retro_encoder_embs = self._prepare_retro_input(soft_product_embs, batch)
+        retro_encoder_pad_mask = batch["retro_mask"].transpose(0, 1)
         retro_memory = self.encoder(retro_encoder_embs, src_key_padding_mask=retro_encoder_pad_mask)
 
-        retro_decoder_input = batch["encoder_input"][:-1, :]
-        retro_decoder_pad_mask = batch["encoder_pad_mask"][:-1, :].transpose(0, 1)
+        retro_decoder_input = batch["reactants_ids"][:-1, :]
+        retro_decoder_pad_mask = batch["reactants_mask"][:-1, :].transpose(0, 1)
         retro_decoder_embs = self._construct_input(retro_decoder_input)
 
         tgt_seq_len, _, _ = retro_decoder_embs.size()
@@ -149,14 +171,14 @@ class CycleConsistencySepBARTModel(CycleConsistencyBARTModel):
             retro_memory,
             tgt_mask=tgt_mask,
             tgt_key_padding_mask=retro_decoder_pad_mask,
-            memory_key_padding_mask=retro_encoder_pad_mask.clone()
+            memory_key_padding_mask=retro_encoder_pad_mask,
         )
         retro_token_output = self.token_fc(retro_decoder_output)
         retro_output = {"model_output": retro_decoder_output, "token_output": retro_token_output}
 
         retro_loss_batch = {
-            "target": batch["encoder_input"][1:, :],
-            "target_mask": batch["encoder_pad_mask"][1:, :],
+            "target": batch["reactants_ids"][1:, :],
+            "target_mask": batch["reactants_mask"][1:, :],
         }
         l_retro = self._calc_loss(retro_loss_batch, retro_output)
 

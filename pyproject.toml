@@ -4,7 +4,6 @@ version = "0.1.0"
 requires-python = ">=3.8,<3.9"
 dependencies = [
 	"rdkit==2022.9.3",
-	"torch==1.8.1",
 	"pytorch-lightning==1.2.3",
 	"pysmilesutils",
 	"hydra-core>=1.3.2",
@@ -13,8 +12,12 @@ dependencies = [
 	"fastapi==0.98.0",
 	"pandas==1.3.5",
 	"lmdb>=1.7.3",
+	"torch==1.13.1",
+	"torchvision==0.14.1",
+	"torchaudio>=0.11.0",
 	"deepspeed==0.6.5",
 ]
+
 
 [tool.uv.sources]
 pysmilesutils = { git = "https://github.com/MolecularAI/pysmilesutils.git" }

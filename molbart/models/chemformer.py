@@ -11,7 +11,7 @@ from torch.utils.data import DataLoader
 
 from molbart.data import DataCollection
 import molbart.utils.data_utils as util
-from molbart.models import BARTModel, UnifiedModel, CycleConsistencyBARTModel, DifferentiableCycleBARTModel
+from molbart.models import BARTModel, UnifiedModel, CycleConsistencyBARTModel, CycleConsistencySepBARTModel
 from molbart.utils.samplers import BeamSearchSampler
 from molbart.utils.tokenizers import ChemformerTokenizer
 from molbart.utils import trainer_utils
@@ -319,8 +319,8 @@ class Chemformer:
                 w_retro=args.get("w_retro", 1.0), 
                 w_cos=args.get("w_cos", 0.5),
             )
-        elif self.model_type == "diff_cycle_bart":
-            model = DifferentiableCycleBARTModel(
+        elif self.model_type == "cycle_sep_bart":
+            model = CycleConsistencySepBARTModel(
                 self.sampler,
                 pad_token_idx,
                 self.vocabulary_size,
@@ -340,7 +340,6 @@ class Chemformer:
                 **extra_args,
                 w_retro=args.get("w_retro", 1.0), 
                 w_kl=args.get("w_kl", 0.1),
-                temperature=args.get("temperature", 1.0),
             )
         elif self.model_type == "unified":
             model = UnifiedModel(
@@ -462,10 +461,10 @@ class Chemformer:
                 model.eval()
             else:
                 raise ValueError(f"Unknown training mode: {self.train_mode}")
-        elif self.model_type == "diff_cycle_bart":
+        elif self.model_type == "cycle_sep_bart":
             if self.train_mode == "training" or self.train_mode == "train":
                 if self.resume_training:
-                    model = DifferentiableCycleBARTModel.load_from_checkpoint(
+                    model = CycleConsistencySepBARTModel.load_from_checkpoint(
                         self.model_path,
                         decode_sampler=self.sampler,
                         num_steps=total_steps,
@@ -473,10 +472,9 @@ class Chemformer:
                         vocabulary_size=self.vocabulary_size,
                         w_retro=args.get("w_retro", 1.0),
                         w_kl=args.get("w_kl", 0.1),
-                        temperature=args.get("temperature", 1.0),
                     )
                 else:
-                    model = DifferentiableCycleBARTModel.load_from_checkpoint(
+                    model = CycleConsistencySepBARTModel.load_from_checkpoint(
                         self.model_path,
                         decode_sampler=self.sampler,
                         pad_token_idx=pad_token_idx,
@@ -490,7 +488,6 @@ class Chemformer:
                         **extra_args,
                         w_retro=args.get("w_retro", 1.0),
                         w_kl=args.get("w_kl", 0.1),
-                        temperature=args.get("temperature", 1.0),
                     )
             elif (
                 self.train_mode == "validation"
@@ -499,12 +496,11 @@ class Chemformer:
                 or self.train_mode == "testing"
                 or self.train_mode == "eval"
             ):
-                model = DifferentiableCycleBARTModel.load_from_checkpoint(
+                model = CycleConsistencySepBARTModel.load_from_checkpoint(
                     self.model_path, 
                     decode_sampler=self.sampler,
                     w_retro=args.get("w_retro", 1.0),
                     w_kl=args.get("w_kl", 0.1),
-                    temperature=args.get("temperature", 1.0),
                 )
 
                 model.eval()
