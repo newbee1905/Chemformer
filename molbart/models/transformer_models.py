@@ -67,16 +67,16 @@ class BARTModel(_AbsTransformerModel):
             norm=nn.LayerNorm(d_model),
         )
 
-        # self.decoder = nn.TransformerDecoder(
-        #     PreNormDecoderLayer(d_model, num_heads, d_feedforward, dropout, activation),
-        #     num_layers,
-        #     norm=nn.LayerNorm(d_model),
-        # )
-        self.decoder = CacheEnabledDecoder(
-            CacheEnabledPreNormDecoderLayer(d_model, num_heads, d_feedforward, dropout, activation),
+        self.decoder = nn.TransformerDecoder(
+            PreNormDecoderLayer(d_model, num_heads, d_feedforward, dropout, activation),
             num_layers,
             norm=nn.LayerNorm(d_model),
         )
+        # self.decoder = CacheEnabledDecoder(
+        #     CacheEnabledPreNormDecoderLayer(d_model, num_heads, d_feedforward, dropout, activation),
+        #     num_layers,
+        #     norm=nn.LayerNorm(d_model),
+        # )
 
         self.pad_token_idx = pad_token_idx
         self.loss_function = nn.CrossEntropyLoss(reduction="none", ignore_index=self.pad_token_idx)
@@ -100,7 +100,7 @@ class BARTModel(_AbsTransformerModel):
             "memory_pad_mask": x["encoder_pad_mask"],
         }
         
-        token_output, _ = self.decode(decode_batch, use_cache=False)
+        token_output = self.decode(decode_batch, use_cache=False)
         return {
             "model_output": token_output,
             "token_output": token_output,
@@ -161,21 +161,20 @@ class BARTModel(_AbsTransformerModel):
             seq_len = decoder_embs.size(0)
             tgt_mask = self._generate_square_subsequent_mask(seq_len, device=decoder_embs.device)
 
-        decoder_output, new_kv_cache = self.decoder(
+        decoder_output = self.decoder(
             decoder_embs,
             memory_input,
             tgt_mask=tgt_mask,
             tgt_key_padding_mask=decoder_pad_mask,
             memory_key_padding_mask=memory_pad_mask,
-            past_kv_cache=past_kv_cache
         )
 
         token_probabilities = self.generator(decoder_output)
 
         if return_last:
-            return token_probabilities[-1, :, :], new_kv_cache
+            return token_probabilities[-1, :, :]
         else:
-            return token_probabilities, new_kv_cache
+            return token_probabilities
 
     def generator(self, decoder_output):
         token_log_probabilities = self.log_softmax(self.token_fc(decoder_output))
@@ -309,20 +308,19 @@ class BARTModel(_AbsTransformerModel):
             seq_len = decoder_embs.size(0)
             tgt_mask = self._generate_square_subsequent_mask(seq_len, device=decoder_embs.device)
 
-        decoder_output, new_kv_cache = self.decoder(
+        decoder_output = self.decoder(
             decoder_embs,
             memory_input,
             tgt_mask=tgt_mask,
             tgt_key_padding_mask=decoder_pad_mask,
             memory_key_padding_mask=memory_pad_mask,
-            past_kv_cache=past_kv_cache
         )
 
         token_probabilities = self.generator(decoder_output)
         if return_last:
-            return token_probabilities[-1, :, :], new_kv_cache
+            return token_probabilities[-1, :, :]
         else:
-            return token_probabilities, new_kv_cache
+            return token_probabilities
 
 
 class UnifiedModel(_AbsTransformerModel):

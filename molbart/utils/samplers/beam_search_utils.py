@@ -167,7 +167,7 @@ class Node:
                     "memory_pad_mask": memory_mask_transposed,
                 }
 
-                ll, _ = self.model.decode(batch, return_last=True)
+                ll = self.model.decode(batch, return_last=True)
                 next_loglikelihood.append(ll)
         next_loglikelihood = torch.cat(next_loglikelihood, axis=0)
         next_loglikelihood = next_loglikelihood.detach()

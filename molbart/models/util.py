@@ -3,6 +3,8 @@ import torch.nn as nn
 from torch.optim.lr_scheduler import LambdaLR
 from typing import Optional, Tuple, List
 
+import copy
+
 class FuncLR(LambdaLR):
     def get_lr(self):
         return [lmbda(self.last_epoch) for lmbda in self.lr_lambdas]
@@ -136,7 +138,7 @@ class CacheEnabledDecoder(nn.Module):
     """A stack of CacheEnabledDecoderLayers."""
     def __init__(self, decoder_layer, num_layers, norm):
         super().__init__()
-        self.layers = nn.ModuleList([decoder_layer for _ in range(num_layers)])
+        self.layers = nn.ModuleList([copy.deepcopy(decoder_layer) for _ in range(num_layers)])
         self.num_layers = num_layers
         self.norm = norm
 
