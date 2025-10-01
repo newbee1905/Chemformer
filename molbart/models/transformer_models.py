@@ -8,7 +8,9 @@ import torch.nn.functional as F
 from torch.optim.lr_scheduler import OneCycleLR
 
 from molbart.models import _AbsTransformerModel
-from molbart.models.util import PreNormDecoderLayer, PreNormEncoderLayer
+from molbart.models.util import PreNormDecoderLayer, PreNormEncoderLayer, CacheEnabledPreNormDecoderLayer, CacheEnabledDecoder
+
+from typing import Optional, Tuple, Dict, List
 
 # ----------------------------------------------------------------------------------------------------------
 # -------------------------------------------- Pre-train Models --------------------------------------------
@@ -65,8 +67,13 @@ class BARTModel(_AbsTransformerModel):
             norm=nn.LayerNorm(d_model),
         )
 
-        self.decoder = nn.TransformerDecoder(
-            PreNormDecoderLayer(d_model, num_heads, d_feedforward, dropout, activation),
+        # self.decoder = nn.TransformerDecoder(
+        #     PreNormDecoderLayer(d_model, num_heads, d_feedforward, dropout, activation),
+        #     num_layers,
+        #     norm=nn.LayerNorm(d_model),
+        # )
+        self.decoder = CacheEnabledDecoder(
+            CacheEnabledPreNormDecoderLayer(d_model, num_heads, d_feedforward, dropout, activation),
             num_layers,
             norm=nn.LayerNorm(d_model),
         )
@@ -79,52 +86,27 @@ class BARTModel(_AbsTransformerModel):
 
         self._init_params()
 
-    def forward(self, x):
-        """Apply SMILES strings to model
-
-        The dictionary returned will be passed to other functions, so its contents are fairly flexible,
-        except that it must contain the key "token_output" which is the output of the model
-        (possibly after any fully connected layers) for each token.
-
-        Arg:
-            x (dict {
-                "encoder_input": tensor of token_ids of shape (src_len, batch_size),
-                "encoder_pad_mask": bool tensor of padded elems of shape (src_len, batch_size),
-                "decoder_input": tensor of decoder token_ids of shape (tgt_len, batch_size)
-                "decoder_pad_mask": bool tensor of decoder padding mask of shape (tgt_len, batch_size)
-            }):
-
-        Returns:
-            Output from model (dict containing key "token_output" and "model_output")
-        """
-
-        encoder_input = x["encoder_input"]
+    def forward(self, x: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+        """Full forward pass for training, processing entire sequences."""
+        memory = self.encode(x)
+        
         decoder_input = x["decoder_input"]
-        encoder_pad_mask = x["encoder_pad_mask"].transpose(0, 1)
-        decoder_pad_mask = x["decoder_pad_mask"].transpose(0, 1)
+        decoder_pad_mask = x["decoder_pad_mask"]
+        
+        decode_batch = {
+            "decoder_input": decoder_input,
+            "decoder_pad_mask": decoder_pad_mask,
+            "memory_input": memory,
+            "memory_pad_mask": x["encoder_pad_mask"],
+        }
+        
+        token_output, _ = self.decode(decode_batch, use_cache=False)
+        return {
+            "model_output": token_output,
+            "token_output": token_output,
+        }
 
-        encoder_embs = self._construct_input(encoder_input)
-        decoder_embeddings = self._construct_input(decoder_input)
-
-        seq_len, _, _ = tuple(decoder_embeddings.size())
-        tgt_mask = self._generate_square_subsequent_mask(seq_len, device=encoder_embs.device)
-
-        memory = self.encoder(encoder_embs, src_key_padding_mask=encoder_pad_mask)
-        model_output = self.decoder(
-            decoder_embeddings,
-            memory,
-            tgt_mask=tgt_mask,
-            tgt_key_padding_mask=decoder_pad_mask,
-            memory_key_padding_mask=encoder_pad_mask.clone(),
-        )
-
-        token_output = self.token_fc(model_output)
-
-        output = {"model_output": model_output, "token_output": token_output}
-
-        return output
-
-    def encode(self, batch):
+    def encode(self, batch: Dict[str, torch.Tensor]) -> torch.Tensor:
         """Construct the memory embedding for an encoder input
 
         Args:
@@ -139,11 +121,19 @@ class BARTModel(_AbsTransformerModel):
 
         encoder_input = batch["encoder_input"]
         encoder_pad_mask = batch["encoder_pad_mask"].transpose(0, 1)
-        encoder_embs = self._construct_input(encoder_input)
-        model_output = self.encoder(encoder_embs, src_key_padding_mask=encoder_pad_mask)
-        return model_output
 
-    def decode(self, batch):
+        encoder_embs = self._construct_input(encoder_input)
+        memory = self.encoder(encoder_embs, src_key_padding_mask=encoder_pad_mask)
+
+        return memory
+
+    def decode(
+        self,
+        batch: Dict[str, torch.Tensor],
+        use_cache: bool = True,
+        past_kv_cache: Optional[List] = None,
+        return_last=False,
+    ) -> Tuple[torch.Tensor, Optional[List]]:
         """Construct an output from a given decoder input
 
         Args:
@@ -156,24 +146,36 @@ class BARTModel(_AbsTransformerModel):
         """
 
         decoder_input = batch["decoder_input"]
-        decoder_pad_mask = batch["decoder_pad_mask"].transpose(0, 1)
         memory_input = batch["memory_input"]
         memory_pad_mask = batch["memory_pad_mask"].transpose(0, 1)
 
-        decoder_embeddings = self._construct_input(decoder_input)
+        decoder_pad_mask = batch.get("decoder_pad_mask")
+        if decoder_pad_mask is not None:
+            decoder_pad_mask = decoder_pad_mask.transpose(0, 1)
 
-        sequence_length, _, _ = tuple(decoder_embeddings.size())
-        tgt_mask = self._generate_square_subsequent_mask(sequence_length, device=decoder_embeddings.device)
+        decoder_embs = self._construct_input(decoder_input)
 
-        decoder_output = self.decoder(
-            decoder_embeddings,
+        tgt_mask = None
+        if not use_cache or past_kv_cache is None:
+            # Create a look-ahead mask for training or the first step of inference
+            seq_len = decoder_embs.size(0)
+            tgt_mask = self._generate_square_subsequent_mask(seq_len, device=decoder_embs.device)
+
+        decoder_output, new_kv_cache = self.decoder(
+            decoder_embs,
             memory_input,
+            tgt_mask=tgt_mask,
             tgt_key_padding_mask=decoder_pad_mask,
             memory_key_padding_mask=memory_pad_mask,
-            tgt_mask=tgt_mask,
+            past_kv_cache=past_kv_cache
         )
-        token_log_probabilities = self.generator(decoder_output)
-        return token_log_probabilities
+
+        token_probabilities = self.generator(decoder_output)
+
+        if return_last:
+            return token_probabilities[-1, :, :], new_kv_cache
+        else:
+            return token_probabilities, new_kv_cache
 
     def generator(self, decoder_output):
         token_log_probabilities = self.log_softmax(self.token_fc(decoder_output))
@@ -278,7 +280,7 @@ class BARTModel(_AbsTransformerModel):
         model_output = self.decode(decode_input)
         return model_output
 
-    def decode_batch(self, batch, return_last=True):
+    def decode_batch(self, batch, return_last=True, use_cache=False, past_kv_cache=None):
         """Construct an output from a given decoder input
 
         Args:
@@ -293,25 +295,34 @@ class BARTModel(_AbsTransformerModel):
         memory_input = batch["memory_input"].permute(1, 0, 2)
         memory_pad_mask = batch["memory_pad_mask"]
 
-        decoder_embeddings = self._construct_input(decoder_input)
+        decoder_pad_mask = batch.get("decoder_pad_mask")
+        if decoder_pad_mask is not None:
+            decoder_pad_mask = decoder_pad_mask
 
-        seq_len, _, _ = tuple(decoder_embeddings.size())
-        tgt_mask = self._generate_square_subsequent_mask(seq_len, device=decoder_embeddings.device).to(
-            decoder_embeddings.device
-        )
+        decoder_embs = self._construct_input(decoder_input)
 
-        decoder_output = self.decoder(
-            decoder_embeddings,
+        seq_len, _, _ = tuple(decoder_embs.size())
+
+        tgt_mask = None
+        if not use_cache or past_kv_cache is None:
+            # Create a look-ahead mask for training or the first step of inference
+            seq_len = decoder_embs.size(0)
+            tgt_mask = self._generate_square_subsequent_mask(seq_len, device=decoder_embs.device)
+
+        decoder_output, new_kv_cache = self.decoder(
+            decoder_embs,
             memory_input,
-            memory_key_padding_mask=memory_pad_mask,
             tgt_mask=tgt_mask,
+            tgt_key_padding_mask=decoder_pad_mask,
+            memory_key_padding_mask=memory_pad_mask,
+            past_kv_cache=past_kv_cache
         )
 
         token_probabilities = self.generator(decoder_output)
         if return_last:
-            return token_probabilities[-1, :, :]
+            return token_probabilities[-1, :, :], new_kv_cache
         else:
-            return token_probabilities
+            return token_probabilities, new_kv_cache
 
 
 class UnifiedModel(_AbsTransformerModel):

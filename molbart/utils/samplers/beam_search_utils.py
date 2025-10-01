@@ -1,6 +1,10 @@
 import torch
 import torch.utils.data as tud
 
+from molbart.models.base_transformer import _AbsTransformerModel
+from typing import Any, Dict, List, Tuple
+
+NEG_INF = -1e20
 
 class Node:
     def __init__(self, model, x, vocabulary, device, data_device="cpu", batch_size=64):
@@ -51,21 +55,21 @@ class Node:
             if src_mask.device != self.device:
                 src_mask = src_mask.to(self.device)
 
-            self.x = self.model.encode(x).detach().permute(1, 0, 2)
-            self.x_mask = src_mask.detach().transpose(0, 1)
+            self.memory = self.model.encode(x).detach().permute(1, 0, 2)
+            self.memory_mask = src_mask.detach().transpose(0, 1)
 
-            if self.x.device != self.data_device:
-                self.x = self.x.to(self.data_device)
-            if self.x_mask.device != self.data_device:
-                self.x_mask = self.x_mask.to(self.data_device)
+            if self.memory.device != self.data_device:
+                self.memory = self.memory.to(self.data_device)
+            if self.memory_mask.device != self.data_device:
+                self.memory_mask = self.memory_mask.to(self.data_device)
 
         self.vocabulary = vocabulary
 
-        self.y = torch.ones((self.x.shape[0], 1), dtype=torch.long) * self.vocabulary["start"]
-        self.y = self.y.detach()
+        self.seq = torch.ones((self.memory.shape[0], 1), dtype=torch.long) * self.vocabulary["start"]
+        self.seq = self.seq.detach()
 
-        if self.y.device != self.data_device:
-            self.y = self.y.to(self.data_device)
+        if self.seq.device != self.data_device:
+            self.seq = self.seq.to(self.data_device)
 
         self.ll_mask = torch.tensor([False])
         self.pos = 0
@@ -73,48 +77,67 @@ class Node:
     def set_beam_width(self, beam_width):
         self.beam_width = beam_width
 
-    def _get_topk(self, loglikelihood):
-        v = loglikelihood.shape[-1]
-        loglikelihood, next_chars = loglikelihood.topk(k=min(v, self.beam_width), axis=-1)
-        if v < self.beam_width:
-            d = self.beam_width - len(self.vocabulary)
-            pl = -1e20 * torch.ones(
-                (len(loglikelihood), d),
-                dtype=loglikelihood.dtype,
-                device=loglikelihood.device,
+    def _get_topk(
+        self, loglikelihoods: torch.Tensor
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Gets the top-k log-likelihoods and their corresponding token indices.
+        Pads if the vocabulary size is smaller than the beam width.
+        """
+        vocab_size = loglikelihoods.shape[-1]
+        k = min(vocab_size, self.beam_width)
+
+        top_loglikelihoods, top_tokens = loglikelihoods.topk(k=k, dim=-1)
+
+        if vocab_size < self.beam_width:
+            padding_needed = self.beam_width - vocab_size
+            
+            pad_loglikelihoods = torch.full(
+                (len(loglikelihoods), padding_needed),
+                NEG_INF,
+                dtype=top_loglikelihoods.dtype,
+                device=top_loglikelihoods.device,
             )
-            pc = torch.zeros(
-                (len(next_chars), d),
-                dtype=next_chars.dtype,
-                device=loglikelihood.device,
+
+            pad_tokens = torch.zeros(
+                (len(top_tokens), padding_needed),
+                dtype=top_tokens.dtype,
+                device=top_tokens.device,
             )
-            loglikelihood = torch.cat((loglikelihood, pl), dim=-1)
-            next_chars = torch.cat((next_chars, pc), dim=-1)
-        return loglikelihood, next_chars
+            top_loglikelihoods = torch.cat([top_loglikelihoods, pad_loglikelihoods], dim=-1)
+            top_tokens = torch.cat([top_tokens, pad_tokens], dim=-1)
+
+        return top_loglikelihoods, top_tokens
 
     def _init_action(self, loglikelihood):
         # Perform the first step
-        loglikelihood, next_chars = self._get_topk(loglikelihood)
+        top_loglikelihoods, next_tokens = self._get_topk(loglikelihood)
 
-        self.loglikelihood = loglikelihood.view(-1, 1)
-        next_chars = next_chars.view(-1, 1)
+        self.loglikelihood = top_loglikelihoods.view(-1, 1)
+        next_tokens = next_tokens.view(-1, 1)
 
-        self.y = self.y.view(len(self.y), 1, -1).repeat(1, self.beam_width, 1).view(-1, 1)
-        self.x = self.x[:, None].repeat(1, self.beam_width, 1, 1).view((-1,) + tuple(self.x.shape[1:]))
-        self.x_mask = self.x_mask[:, None].repeat(1, self.beam_width, 1).view((-1,) + tuple(self.x_mask.shape[1:]))
+        # (bsz, seq) -> (bsz, 1, seq) -> (bsz , beam, seq) -> (bsz * beam, seq)
+        self.seq = self.seq.unsqueeze(1).repeat(1, self.beam_width, 1)
+        self.seq = self.seq.view(-1, self.seq.shape[-1])
 
-        self.y = torch.cat((self.y, next_chars), dim=-1)
+        self.memory = self.memory.unsqueeze(1).repeat(1, self.beam_width, 1, 1)
+        self.memory = self.memory.view(-1, *self.memory.shape[2:])
+
+        self.memory_mask = self.memory_mask.unsqueeze(1).repeat(1, self.beam_width, 1)
+        self.memory_mask = self.memory_mask.view(-1, self.memory_mask.shape[-1])
+
+        self.seq = torch.cat((self.seq, next_tokens), dim=-1)
 
         # VERY IMPORTANT! we need a mask for
         # the log likelihood when reaching the eos
         # self.ll_mask = torch.zeros(len(self.loglikelihood), dtype=torch.bool)
-        self.ll_mask = torch.any(self.y == self.vocabulary["end"], dim=-1)
+        self.ll_mask = torch.any(self.seq == self.vocabulary["end"], dim=-1)
 
     def get_actions(self):
         batch_size = self.batch_size
         next_loglikelihood = []
 
-        local_dataset = tud.TensorDataset(self.x, self.x_mask, self.y)
+        local_dataset = tud.TensorDataset(self.memory, self.memory_mask, self.seq)
         local_loader = tud.DataLoader(local_dataset, batch_size=batch_size)
 
         # make sure that the local_loader
@@ -122,17 +145,29 @@ class Node:
         iterator = iter(local_loader)
 
         with torch.no_grad():
-            for x, x_mask, y in local_loader:
-                if x.device != self.device:
-                    x = x.to(self.device)
-                if x_mask.device != self.device:
-                    x_mask = x_mask.to(self.device)
-                if y.device != self.device:
-                    y = y.to(self.device)
+            for memory, memory_mask, src in local_loader:
+                if memory.device != self.device:
+                    memory = memory.to(self.device)
 
-                X = {"decoder_input": y, "memory_input": x, "memory_pad_mask": x_mask}
+                if memory_mask.device != self.device:
+                    memory_mask = memory_mask.to(self.device)
 
-                ll = self.model.decode_batch(X)
+                if src.device != self.device:
+                    src = src.to(self.device)
+
+                # memory and src in Node is currently saved
+                # with bsz as the first element
+                src_transposed = src.transpose(0, 1)
+                memory_permuted = memory.permute(1, 0, 2)
+                memory_mask_transposed = memory_mask.transpose(0, 1)
+
+                batch = {
+                    "decoder_input": src_transposed,
+                    "memory_input": memory_permuted,
+                    "memory_pad_mask": memory_mask_transposed,
+                }
+
+                ll, _ = self.model.decode(batch, return_last=True)
                 next_loglikelihood.append(ll)
         next_loglikelihood = torch.cat(next_loglikelihood, axis=0)
         next_loglikelihood = next_loglikelihood.detach()
@@ -164,16 +199,16 @@ class Node:
                 best_candidates = best_candidates.to(self.device)
             # done
 
-            y = self.y.view(-1, self.beam_width, self.y.shape[-1])
-            i = torch.arange(len(y)).unsqueeze(-1).repeat(1, self.beam_width).flatten()
+            src = self.seq.view(-1, self.beam_width, self.seq.shape[-1])
+            i = torch.arange(len(src)).unsqueeze(-1).repeat(1, self.beam_width).flatten()
             j = best_candidates.flatten()
-            self.y = y[i, j].view(-1, self.y.shape[-1])
+            self.seq = src[i, j].view(-1, self.seq.shape[-1])
 
-            self.y = torch.cat((self.y, next_chars), dim=-1)
+            self.seq = torch.cat((self.seq, next_chars), dim=-1)
             self.loglikelihood = ll.view(-1, 1)
 
             # update ll mask
-            self.ll_mask = torch.any(self.y == self.vocabulary["end"], dim=-1)
+            self.ll_mask = torch.any(self.seq == self.vocabulary["end"], dim=-1)
         self.pos = self.pos + 1
 
     @staticmethod
@@ -183,7 +218,6 @@ class Node:
         subsequent_mask = torch.triu(torch.ones(attn_shape), diagonal=1)
         A = subsequent_mask == 0
         return A.type(torch.long)
-
 
 class Criterion:
     def __call__(self, node):
@@ -230,15 +264,13 @@ def beamsearch(node, beamsize, stop_criterion):
     print("Sampling with beam size: " + str(beamsize))
 
     while not stop_criterion(node):
-        a = node.get_actions()
-        node.action(a)
+        if torch.all(node.ll_mask):
+            print("All beams finished.")
+            break
 
-    a = node.get_actions()
+        next_loglikelihood = node.get_actions()
+        node.action(next_loglikelihood)
 
-    end_tokens = node.vocabulary["end"] * torch.logical_not(node.ll_mask).type(node.y.dtype)
-    node.y = torch.cat((node.y, end_tokens.view(-1, 1)), dim=-1)
-    ll_tail = a[torch.arange(len(a)), end_tokens] * torch.logical_not(node.ll_mask).type(a.dtype)
-    node.loglikelihood = node.loglikelihood + ll_tail.view(-1, 1)
     return node
 
 # vim: ts=4 sw=4 expandtab

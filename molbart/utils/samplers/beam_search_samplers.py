@@ -18,7 +18,6 @@ if TYPE_CHECKING:
 
 RDLogger.DisableLog("rdApp.*")
 
-
 class BeamSearchSampler:
     """
     GPU-optimized beam search sampler/decoder. Generates predictions and
@@ -159,7 +158,6 @@ class BeamSearchSampler:
         else:
             return sampled_smiles, log_lhs
 
-
 class DecodeSampler:
     def __init__(self, tokenizer, max_seq_len, length_norm=None):
         self.tokenizer = tokenizer
@@ -212,11 +210,18 @@ class DecodeSampler:
         """
 
         # Create tensors which will be reused
-        token_ids = [self.begin_token_id] + ([self.pad_token_id] * (self.max_seq_len - 1))
-        token_ids = [token_ids] * batch_size
-        token_ids = torch.tensor(token_ids, device=device).transpose(0, 1)
-        pad_mask = torch.zeros((self.max_seq_len, batch_size), device=device, dtype=torch.bool)
-        log_lhs = torch.zeros((batch_size))
+        token_ids = torch.full((self.max_seq_len, batch_size), self.pad_token_id, device=device)
+        token_ids[0, :] = self.begin_token_id
+
+        pad_mask = torch.zeros((self.max_seq_len, batch_size), dtype=torch.bool, device=device)
+        log_lhs = torch.zeros(batch_size, device=device)
+
+        # token_ids = [self.begin_token_id] + ([self.pad_token_id] * (self.max_seq_len - 1))
+        # token_ids = [token_ids] * batch_size
+
+        # token_ids = torch.tensor(token_ids, device=device).transpose(0, 1)
+        # pad_mask = torch.zeros((self.max_seq_len, batch_size), device=device, dtype=torch.bool)
+        # log_lhs = torch.zeros((batch_size))
 
         # Iteratively apply the tokens to the model and build up the sequence
         for i in range(1, self.max_seq_len):
@@ -226,6 +231,7 @@ class DecodeSampler:
             # Sample next id for each element in the batch
             output_dist = decode_fn(token_ids_seq, pad_mask_seq)
             probs, output_ids = output_dist.max(dim=2)
+
             new_ids = output_ids[-1, :]
             new_probs = probs[-1, :]
 
@@ -237,7 +243,9 @@ class DecodeSampler:
             new_pad_mask = torch.logical_or(is_end_token, is_pad_token)
 
             # Break if sampling is complete
-            if new_pad_mask.sum().item() == new_pad_mask.numel():
+            # if new_pad_mask.sum().item() == new_pad_mask.numel():
+            #     break
+            if new_pad_mask.all():
                 break
 
             # Ensure all sequences contain an end token
@@ -253,6 +261,7 @@ class DecodeSampler:
         tokens = token_ids.transpose(0, 1)
         tokens = self.tokenizer.convert_ids_to_tokens(tokens)
         mol_strs = self.tokenizer.detokenize(tokens, truncate_at_end_token=True)
+        # log_lhs = log_lhs.cpu().tolist()
         log_lhs = log_lhs.tolist()
 
         return mol_strs, log_lhs
@@ -274,14 +283,18 @@ class DecodeSampler:
         """
 
         # Create tensors which will be reused
-        token_ids = [self.begin_token_id] + ([self.pad_token_id] * (self.max_seq_len - 1))
-        token_ids = [token_ids] * batch_size
-        token_ids = torch.tensor(token_ids, device=device).transpose(0, 1)
-        pad_mask = torch.zeros((self.max_seq_len, batch_size), device=device, dtype=torch.bool)
+        # token_ids = [self.begin_token_id] + ([self.pad_token_id] * (self.max_seq_len - 1))
+        # token_ids = [token_ids] * batch_size
+        # token_ids = torch.tensor(token_ids, device=device).transpose(0, 1)
+        # pad_mask = torch.zeros((self.max_seq_len, batch_size), device=device, dtype=torch.bool)
+
+        token_ids = torch.full((self.max_seq_len, batch_size), self.pad_token_id, device=device)
+        token_ids[0, :] = self.begin_token_id
+        pad_mask = torch.zeros((self.max_seq_len, batch_size), dtype=torch.bool, device=device)
 
         ts = token_ids[:1, :]
         ms = pad_mask[:1, :]
-        ll = torch.zeros((batch_size))
+        ll = torch.zeros((batch_size), device=device)
 
         # Apply starting token to model to get a distribution over next tokens
         first_lls = self._beam_step(decode_fn, ts, ms, ll)
@@ -298,7 +311,7 @@ class DecodeSampler:
             pad_mask_list[beam_idx][1, :] = 0
 
         for i in range(2, self.max_seq_len):
-            complete = self._update_beams_(i, decode_fn, token_ids_list, pad_mask_list, lls_list)
+            complete = self._update_beams(i, decode_fn, token_ids_list, pad_mask_list, lls_list)
             if complete:
                 break
 
@@ -315,7 +328,7 @@ class DecodeSampler:
 
         return sorted_mols, sorted_lls
 
-    def _update_beams_(self, i, decode_fn, token_ids_list, pad_mask_list, lls_list):
+    def _update_beams(self, i, decode_fn, token_ids_list, pad_mask_list, lls_list):
         """Update beam tokens and pad mask in-place using a single decode step
 
         Updates token ids and pad mask in-place by producing the probability distribution over next tokens
