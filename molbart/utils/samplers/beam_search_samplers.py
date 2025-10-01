@@ -134,8 +134,8 @@ class BeamSearchSampler:
 
         beamsearch(node, beam_size, stop_criterion)
 
-        Y = node.y.detach().cpu().numpy()
-        tokens = self.tokenizer.convert_ids_to_tokens(Y)
+        seq = node.seq.detach().cpu().numpy()
+        tokens = self.tokenizer.convert_ids_to_tokens(seq)
 
         sampled_smiles = np.asarray(self.tokenizer.detokenize(tokens, truncate_at_end_token=True)).reshape(
             (-1, beam_size)
