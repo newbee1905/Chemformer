@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Tuple
 NEG_INF = -1e20
 
 class Node:
-    def __init__(self, model, x, vocabulary, device, data_device="cpu", batch_size=64):
+    def __init__(self, model, x, vocabulary, device, data_device="cpu", batch_size=64, gumbel_noise=False):
         """
         Initialize a Node used for autoregression
         predictions, such as greedy search, multinomial
@@ -40,6 +40,7 @@ class Node:
         self.model = model
         self.device = device
         self.data_device = data_device
+        self.gumbel_noise = gumbel_noise
 
         src = x["encoder_input"]
         src_mask = x["encoder_pad_mask"]
@@ -170,6 +171,15 @@ class Node:
                 ll = self.model.decode(batch, return_last=True)
                 next_loglikelihood.append(ll)
         next_loglikelihood = torch.cat(next_loglikelihood, axis=0)
+
+        if self.gumbel_noise:
+            uniform_noise = torch.rand_like(next_loglikelihood)
+
+            # Add a small epsilon to prevent log(0)
+            gumbel_noise = -torch.log(-torch.log(uniform_noise + 1e-9))
+
+            next_loglikelihood = next_loglikelihood + gumbel_noise
+
         next_loglikelihood = next_loglikelihood.detach()
         if next_loglikelihood != self.data_device:
             next_loglikelihood = next_loglikelihood.to(self.data_device)

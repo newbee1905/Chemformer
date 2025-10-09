@@ -32,6 +32,7 @@ class BeamSearchSampler:
         device: str = "cuda",
         data_device: str = "cuda",
         sample_unique: bool = True,
+        gumbel_noise: bool = False,
     ) -> None:
         """
         Args:
@@ -50,6 +51,7 @@ class BeamSearchSampler:
         self.sampling_alg = None
         self.data_device = data_device
         self.sample_unique = sample_unique
+        self.gumbel_noise = gumbel_noise
         self.scorers = scorers
         return
 
@@ -130,6 +132,7 @@ class BeamSearchSampler:
             self.device,
             batch_size=batch_size,
             data_device=self.data_device,
+            gumbel_noise=self.gumbel_noise,
         )
 
         beamsearch(node, beam_size, stop_criterion)
@@ -215,13 +218,7 @@ class DecodeSampler:
 
         pad_mask = torch.zeros((self.max_seq_len, batch_size), dtype=torch.bool, device=device)
         log_lhs = torch.zeros(batch_size, device=device)
-
-        # token_ids = [self.begin_token_id] + ([self.pad_token_id] * (self.max_seq_len - 1))
-        # token_ids = [token_ids] * batch_size
-
-        # token_ids = torch.tensor(token_ids, device=device).transpose(0, 1)
-        # pad_mask = torch.zeros((self.max_seq_len, batch_size), device=device, dtype=torch.bool)
-        # log_lhs = torch.zeros((batch_size))
+        is_finished = torch.zeros(batch_size, dtype=torch.bool, device=device)
 
         # Iteratively apply the tokens to the model and build up the sequence
         for i in range(1, self.max_seq_len):
@@ -235,187 +232,187 @@ class DecodeSampler:
             new_ids = output_ids[-1, :]
             new_probs = probs[-1, :]
 
-            # Generate next elements in the pad mask. An element is padded if:
-            # 1. The previous token is an end token
-            # 2. The previous token is a pad token
-            is_end_token = token_ids[i - 1, :] == self.end_token_id
-            is_pad_token = token_ids[i - 1, :] == self.pad_token_id
-            new_pad_mask = torch.logical_or(is_end_token, is_pad_token)
+            # # Generate next elements in the pad mask. An element is padded if:
+            # # 1. The previous token is an end token
+            # # 2. The previous token is a pad token
+            # is_end_token = token_ids[i - 1, :] == self.end_token_id
+            # is_pad_token = token_ids[i - 1, :] == self.pad_token_id
+            # new_pad_mask = torch.logical_or(is_end_token, is_pad_token)
 
-            # Break if sampling is complete
-            # if new_pad_mask.sum().item() == new_pad_mask.numel():
+            token_ids[i, ~is_finished] = new_ids[~is_finished]
+            log_lhs += new_probs * (~is_finished.to(new_probs.device))
+            is_finished |= (token_ids[i, :] == self.end_token_id)
+
+            # # Break if sampling is complete
+            # # if new_pad_mask.sum().item() == new_pad_mask.numel():
+            # #     break
+            # if new_pad_mask.all():
             #     break
-            if new_pad_mask.all():
+
+            # # Ensure all sequences contain an end token
+            # if i == self.max_seq_len - 1:
+            #     new_ids[~new_pad_mask] = self.end_token_id
+
+            # # Set the token to pad where required, update the token ids and update lls
+            # new_ids[new_pad_mask] = self.pad_token_id
+            # token_ids[i, :] = new_ids
+            # pad_mask[i, :] = new_pad_mask
+            # log_lhs += new_probs.cpu()
+
+            if is_finished.all():
                 break
 
-            # Ensure all sequences contain an end token
-            if i == self.max_seq_len - 1:
-                new_ids[~new_pad_mask] = self.end_token_id
+        for j in range(batch_size):
+            if self.end_token_id not in token_ids[:, j]:
+                token_ids[self.max_seq_len - 1, j] = self.end_token_id
 
-            # Set the token to pad where required, update the token ids and update lls
-            new_ids[new_pad_mask] = self.pad_token_id
-            token_ids[i, :] = new_ids
-            pad_mask[i, :] = new_pad_mask
-            log_lhs += new_probs.cpu()
-
-        tokens = token_ids.transpose(0, 1)
+        tokens = token_ids.transpose(0, 1).cpu()
         tokens = self.tokenizer.convert_ids_to_tokens(tokens)
         mol_strs = self.tokenizer.detokenize(tokens, truncate_at_end_token=True)
-        # log_lhs = log_lhs.cpu().tolist()
-        log_lhs = log_lhs.tolist()
+        log_lhs = log_lhs.cpu().tolist()
+        # log_lhs = log_lhs.tolist()
 
         return mol_strs, log_lhs
 
     def beam_decode(self, decode_fn, batch_size, device="cpu", k=5):
-        """Sample molecules from the model using beam search
-
-        Samples molecules by iteratively building up the sequence of SMILES characters using beam search.
-        Molecules are returned in a 2D list where batch_size is the outer dimension and k is the inner dimension.
-
-        Args:
-            decode_fn (fn): Function used to apply tokens to model and produce log probability distribution
-            batch_size (int): Number of molecules to sample
-            device: Torch device to create tensors on
-            k (int): Number of beams
-
-        Returns:
-            (List[List[str]], List[List[float]]): Tuple of (molecules, their log likelihoods)
         """
+        Sample molecules from the model using beam search.
+        """
+        vocab_size = len(self.tokenizer)
 
-        # Create tensors which will be reused
-        # token_ids = [self.begin_token_id] + ([self.pad_token_id] * (self.max_seq_len - 1))
-        # token_ids = [token_ids] * batch_size
-        # token_ids = torch.tensor(token_ids, device=device).transpose(0, 1)
-        # pad_mask = torch.zeros((self.max_seq_len, batch_size), device=device, dtype=torch.bool)
+        final_seqs = torch.full((batch_size, k, self.max_seq_len), self.pad_token_id, device=device, dtype=torch.long)
+        final_lls = torch.full((batch_size, k), -float("inf"), device=device)
+        beams_completed_count = torch.zeros(batch_size, device=device, dtype=torch.long)
 
-        token_ids = torch.full((self.max_seq_len, batch_size), self.pad_token_id, device=device)
-        token_ids[0, :] = self.begin_token_id
-        pad_mask = torch.zeros((self.max_seq_len, batch_size), dtype=torch.bool, device=device)
+        active_seqs = torch.full((batch_size, 1), self.begin_token_id, device=device, dtype=torch.long)
+        active_lls = torch.zeros(batch_size, device=device).unsqueeze(1)
 
-        ts = token_ids[:1, :]
-        ms = pad_mask[:1, :]
-        ll = torch.zeros((batch_size), device=device)
-
-        # Apply starting token to model to get a distribution over next tokens
-        first_lls = self._beam_step(decode_fn, ts, ms, ll)
-        top_lls, top_idxs = torch.topk(first_lls, k, dim=1)
-        top_ids = list(top_idxs.T)
-
-        # Setup tensors for each beam which will be reused
-        token_ids_list = [token_ids.clone() for _ in range(k)]
-        pad_mask_list = [pad_mask.clone() for _ in range(k)]
-        lls_list = list(top_lls.cpu().T)
-
-        for beam_idx, ids in enumerate(top_ids):
-            token_ids_list[beam_idx][1, :] = ids
-            pad_mask_list[beam_idx][1, :] = 0
-
-        for i in range(2, self.max_seq_len):
-            complete = self._update_beams(i, decode_fn, token_ids_list, pad_mask_list, lls_list)
-            if complete:
+        for i in range(1, self.max_seq_len):
+            if (beams_completed_count >= k).all():
                 break
 
-        tokens_list = [token_ids.transpose(0, 1) for token_ids in token_ids_list]
-        tokens_list = [self.tokenizer.convert_ids_to_tokens(tokens) for tokens in tokens_list]
+            input_seqs = active_seqs.transpose(0, 1)
+            pad_mask = (input_seqs == self.pad_token_id)
+            log_probs = decode_fn(input_seqs, pad_mask)[-1, :, :]
+            log_probs = F.log_softmax(log_probs, dim=-1)
 
-        mol_strs_list = [self.tokenizer.detokenize(tokens, truncate_at_end_token=True) for tokens in tokens_list]
-        log_lhs_list = [log_lhs.tolist() for log_lhs in lls_list]
+            num_active_beams = active_lls.shape[1]
+            scores = log_probs.view(batch_size, num_active_beams, -1) + active_lls.unsqueeze(2)
 
-        # Transpose and sort list of molecules based on ll
-        new_mol_strs = self._transpose_list(mol_strs_list)
-        new_log_lhs = self._transpose_list(log_lhs_list)
-        sorted_mols, sorted_lls = self._sort_beams(new_mol_strs, new_log_lhs)
+            scores = scores.view(batch_size, -1)
 
-        return sorted_mols, sorted_lls
+            num_candidates = min(2 * k, scores.shape[1])
+            top_scores, top_indices = torch.topk(scores, num_candidates, dim=1)
 
-    def _update_beams(self, i, decode_fn, token_ids_list, pad_mask_list, lls_list):
-        """Update beam tokens and pad mask in-place using a single decode step
+            beam_indices = top_indices // vocab_size
+            next_tokens = top_indices % vocab_size
+            
+            batch_indices = torch.arange(batch_size, device=device).unsqueeze(1)
+            parent_seqs = active_seqs.view(batch_size, num_active_beams, -1)[batch_indices, beam_indices]
+            next_seqs = torch.cat([parent_seqs, next_tokens.unsqueeze(2)], dim=2)
+            
+            is_eos = (next_tokens == self.end_token_id)
+            
+            finished_mask = is_eos & (beams_completed_count.unsqueeze(1) < k)
+            
+            # Use cumsum to get the correct slot index for each new finished beam
+            slots = beams_completed_count.unsqueeze(1) + torch.cumsum(finished_mask, dim=1) - 1
+            
+            if finished_mask.any():
+                finished_seqs_to_add = next_seqs[finished_mask]
+                finished_lls_to_add = top_scores[finished_mask]
+                
+                b_indices = batch_indices.expand_as(finished_mask)[finished_mask]
+                s_indices = slots[finished_mask]
+                
+                padded_seqs = F.pad(finished_seqs_to_add, (0, self.max_seq_len - finished_seqs_to_add.shape[1]), value=self.pad_token_id)
+                final_seqs[b_indices, s_indices] = padded_seqs
+                final_lls[b_indices, s_indices] = finished_lls_to_add
 
-        Updates token ids and pad mask in-place by producing the probability distribution over next tokens
-        and choosing the top k (number of beams) log likelihoods to choose the next tokens.
-        Sampling is complete if every batch element in every beam has produced an end token.
+            beams_completed_count += finished_mask.sum(dim=1)
+            
+            active_scores = top_scores.clone()
+            active_scores[is_eos] = -float("inf")
+            
+            _, active_topk_indices = torch.topk(active_scores, k, dim=1)
+            
+            active_batch_indices = batch_indices.expand_as(active_topk_indices)
+            active_seqs = next_seqs[active_batch_indices, active_topk_indices]
+            active_lls = top_scores[active_batch_indices, active_topk_indices]
+            
+            active_seqs = active_seqs.view(-1, i + 2)
 
-        Args:
-            i (int): The current iteration counter
-            decode_fn (fn): Function used to apply tokens to model and produce log probability distribution
-            token_ids_list (List[torch.Tensor]): List of token_ids, each of shape [seq_len, batch_size]
-            pad_mask_list (List[torch.Tensor]): List of pad_masks, each of shape [seq_len, batch_size]
-            lls_list (List[torch.Tensor]): List of log likelihoods, each of shape [batch_size]
+        sorted_lls, sort_indices = torch.sort(final_lls, dim=1, descending=True)
+        sorted_seqs = final_seqs.gather(1, sort_indices.unsqueeze(-1).expand_as(final_seqs))
 
-        Returns:
-            (bool): Specifies whether all of the beams are complete
+        sorted_mols = []
+        for b in range(batch_size):
+            tokens = sorted_seqs[b].cpu()
+            tokens_list = self.tokenizer.convert_ids_to_tokens(tokens)
+            mol_strs = self.tokenizer.detokenize(tokens_list, truncate_at_end_token=True)
+            sorted_mols.append(mol_strs)
+
+        return sorted_mols, sorted_lls.cpu().tolist()
+
+    def _update_beam(self, decode_fn, i, active_seqs, active_lls, final_seqs, final_lls, beams_completed_count, batch_size, k, device):
         """
+        Performs one vectorized step of beam search, replacing the old _update_beams function.
+        
+        This function processes all active beams in a single batch, separates completed
+        and newly active beams, and returns the state for the next iteration.
+        """
+        vocab_size = len(self.tokenizer)
 
-        assert len(token_ids_list) == len(pad_mask_list) == len(lls_list)
+        input_seqs = active_seqs.transpose(0, 1)
+        pad_mask = (input_seqs == self.pad_token_id)
+        log_probs = decode_fn(input_seqs, pad_mask)[-1, :, :]
+        log_probs = torch.nn.functional.log_softmax(log_probs, dim=-1)
 
-        num_beams = len(token_ids_list)
+        # Combines current scores with next-token scores for all beams
+        num_active_beams = active_lls.shape[1]
+        scores = log_probs.view(batch_size, num_active_beams, -1) + active_lls.unsqueeze(2)
+        scores_flat = scores.view(batch_size, -1)
 
-        ts = [token_ids[:i, :] for token_ids in token_ids_list]
-        ms = [pad_mask[:i, :] for pad_mask in pad_mask_list]
+        num_candidates = min(2 * k, scores_flat.shape[1])
+        top_scores, top_indices = torch.topk(scores_flat, num_candidates, dim=1)
 
-        # Apply current seqs to model to get a distribution over next tokens
-        # new_lls is a tensor of shape [batch_size, vocab_size * num_beams]
-        new_lls = [self._beam_step(decode_fn, t, m, lls) for t, m, lls in zip(ts, ms, lls_list)]
-        norm_lls = [self._norm_length(lls, mask) for lls, mask in zip(new_lls, ms)]
+        # Reconstructs all new candidate sequences in parallel.
+        beam_indices = top_indices // vocab_size
+        next_tokens = top_indices % vocab_size
+        batch_indices = torch.arange(batch_size, device=device).unsqueeze(1)
+        parent_seqs = active_seqs.view(batch_size, num_active_beams, -1)[batch_indices, beam_indices]
+        next_seqs = torch.cat([parent_seqs, next_tokens.unsqueeze(2)], dim=2)
 
-        _, vocab_size = tuple(norm_lls[0].shape)
-        new_lls = torch.cat(new_lls, dim=1)
-        norm_lls = torch.cat(norm_lls, dim=1)
+        is_eos = (next_tokens == self.end_token_id)
+        
+        # Place completed beams into final storage using boolean masks and cumsum for indexing.
+        finished_mask = is_eos & (beams_completed_count.unsqueeze(1) < k)
+        slots = beams_completed_count.unsqueeze(1) + torch.cumsum(finished_mask, dim=1) - 1
+        
+        if finished_mask.any():
+            b_indices = batch_indices.expand_as(finished_mask)[finished_mask]
+            s_indices = slots[finished_mask]
+            padded_seqs = torch.nn.functional.pad(
+                next_seqs[finished_mask],
+                (0, self.max_seq_len - next_seqs.shape[2]),
+                value=self.pad_token_id,
+            )
+            final_seqs[b_indices, s_indices] = padded_seqs
+            final_lls[b_indices, s_indices] = top_scores[finished_mask]
 
-        # Keep lists (of length num_beams) of tensors of shape [batch_size]
-        top_lls, top_idxs = torch.topk(norm_lls, num_beams, dim=1)
-        new_ids_list = list((top_idxs % vocab_size).T)
-        beam_idxs_list = list((top_idxs // vocab_size).T)
-        top_lls = [new_lls[b_idx, idx] for b_idx, idx in enumerate(list(top_idxs))]
-        top_lls = torch.stack(top_lls).T
-
-        beam_complete = []
-        new_ts_list = []
-        new_pm_list = []
-        new_lls_list = []
-
-        # Set the sampled tokens, pad masks and log likelihoods for each of the new beams
-        for new_beam_idx, (new_ids, beam_idxs, lls) in enumerate(zip(new_ids_list, beam_idxs_list, top_lls)):
-            # Get the previous sequences corresponding to the new beams
-            token_ids = [token_ids_list[beam_idx][:, b_idx] for b_idx, beam_idx in enumerate(beam_idxs)]
-            token_ids = torch.stack(token_ids).transpose(0, 1)
-
-            # Generate next elements in the pad mask. An element is padded if:
-            # 1. The previous token is an end token
-            # 2. The previous token is a pad token
-            is_end_token = token_ids[i - 1, :] == self.end_token_id
-            is_pad_token = token_ids[i - 1, :] == self.pad_token_id
-            new_pad_mask = torch.logical_or(is_end_token, is_pad_token)
-            beam_complete.append(new_pad_mask.sum().item() == new_pad_mask.numel())
-
-            # Ensure all sequences contain an end token
-            if i == self.max_seq_len - 1:
-                new_ids[~new_pad_mask] = self.end_token_id
-
-            # Set the tokens to pad if an end token as already been produced
-            new_ids[new_pad_mask] = self.pad_token_id
-            token_ids[i, :] = new_ids
-
-            # Generate full pad mask sequence for new token sequence
-            pad_mask = [pad_mask_list[beam_idx][:, b_idx] for b_idx, beam_idx in enumerate(beam_idxs)]
-            pad_mask = torch.stack(pad_mask).transpose(0, 1)
-            pad_mask[i, :] = new_pad_mask
-
-            # Add tokens, pad mask and lls to list to be updated after all beams have been processed
-            new_ts_list.append(token_ids)
-            new_pm_list.append(pad_mask)
-            new_lls_list.append(lls)
-
-        complete = sum(beam_complete) == len(beam_complete)
-
-        # Update all tokens, pad masks and lls
-        if not complete:
-            for beam_idx, (ts, pm, lls) in enumerate(zip(new_ts_list, new_pm_list, new_lls_list)):
-                token_ids_list[beam_idx] = ts
-                pad_mask_list[beam_idx] = pm
-                lls_list[beam_idx] = lls
-
-        return complete
+        beams_completed_count += finished_mask.sum(dim=1)
+        
+        # Select the top k *unfinished* beams for the next iteration.
+        active_scores = top_scores.clone()
+        active_scores[is_eos] = -float("inf")
+        _, active_topk_indices = torch.topk(active_scores, k, dim=1)
+        
+        # Gather the data for the next iteration.
+        active_batch_indices = batch_indices.expand_as(active_topk_indices)
+        next_active_seqs = next_seqs[active_batch_indices, active_topk_indices].view(-1, i + 2)
+        next_active_lls = top_scores[active_batch_indices, active_topk_indices]
+        
+        return next_active_seqs, next_active_lls, final_seqs, final_lls, beams_completed_count
 
     def _beam_step(self, decode_fn, tokens, mask, lls):
         """Apply tokens to model to produce the log likelihoods for the full sequence
