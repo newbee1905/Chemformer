@@ -35,14 +35,22 @@ class ModelCheckpoint(plc.ModelCheckpoint):
         save_last: bool = True,
         save_top_k: int = 3,
         save_weights_only: bool = False,
-        mode: str = "auto",
+        mode: str = "min",
         period: int = 1,
         prefix: str = "",
         **kwargs: Any,
     ) -> None:
+        final_filename = f"{{epoch}}-{{{monitor}}}"
+
+        if len(prefix) > 0:
+            final_filename = f"{prefix}-" + final_filename
+
+        if filename:
+            final_filename = final_filename + f"-{filename}"
+
         super().__init__(
             dirpath=dirpath,
-            filename=filename,
+            filename=final_filename,
             monitor=monitor,
             verbose=verbose,
             save_last=save_last,
@@ -50,7 +58,6 @@ class ModelCheckpoint(plc.ModelCheckpoint):
             save_weights_only=save_weights_only,
             mode=mode,
             period=period,
-            prefix=prefix,
             **kwargs,
         )
 

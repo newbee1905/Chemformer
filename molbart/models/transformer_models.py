@@ -72,14 +72,10 @@ class BARTModel(_AbsTransformerModel):
             num_layers,
             norm=nn.LayerNorm(d_model),
         )
-        # self.decoder = CacheEnabledDecoder(
-        #     CacheEnabledPreNormDecoderLayer(d_model, num_heads, d_feedforward, dropout, activation),
-        #     num_layers,
-        #     norm=nn.LayerNorm(d_model),
-        # )
 
         self.pad_token_idx = pad_token_idx
         self.loss_function = nn.CrossEntropyLoss(reduction="none", ignore_index=self.pad_token_idx)
+        # self.loss_function = nn.CrossEntropyLoss(reduction="none", ignore_index=self.pad_token_idx, label_smoothing=0.1)
 
         self.token_fc = nn.Linear(d_model, vocabulary_size)
         self.log_softmax = nn.LogSoftmax(dim=2)
@@ -100,9 +96,9 @@ class BARTModel(_AbsTransformerModel):
             "memory_pad_mask": x["encoder_pad_mask"],
         }
         
-        token_output = self.decode(decode_batch, use_cache=False)
+        token_output, model_output = self.decode(decode_batch, use_cache=False)
         return {
-            "model_output": token_output,
+            "model_output": model_output,
             "token_output": token_output,
         }
 
@@ -174,7 +170,7 @@ class BARTModel(_AbsTransformerModel):
         if return_last:
             return token_probabilities[-1, :, :]
         else:
-            return token_probabilities
+            return token_probabilities, decoder_output
 
     def generator(self, decoder_output):
         token_log_probabilities = self.log_softmax(self.token_fc(decoder_output))

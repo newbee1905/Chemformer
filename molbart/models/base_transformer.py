@@ -174,7 +174,7 @@ class _AbsTransformerModel(pl.LightningModule):
             if not param.requires_grad:
                 continue
             
-            if param.dim() == 1 or "bias" in name:
+            if param.dim() == 1 or "bias" in name or "norm" in name.lower():
                 no_decay_params.append(param)
             else:
                 decay_params.append(param)
