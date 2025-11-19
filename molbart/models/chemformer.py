@@ -11,7 +11,7 @@ from torch.utils.data import DataLoader
 
 from molbart.data import DataCollection
 import molbart.utils.data_utils as util
-from molbart.models import BARTModel, UnifiedModel, CycleConsistencyBARTModel, CycleConsistencySepBARTModel
+from molbart.models import BARTModel, UnifiedModel, CycleConsistencyBARTModel, CycleConsistencySepBARTModel, GraphBARTModel
 from molbart.utils.samplers import BeamSearchSampler
 from molbart.utils.tokenizers import ChemformerTokenizer
 from molbart.utils import trainer_utils
@@ -341,6 +341,26 @@ class Chemformer:
                 w_retro=args.get("w_retro", 1.0), 
                 w_kl=args.get("w_kl", 0.1),
             )
+        elif self.model_type == "graph_bart":
+            model = GraphBARTModel(
+                self.sampler,
+                pad_token_idx,
+                self.vocabulary_size,
+                args.d_model,
+                args.n_layers,
+                args.n_heads,
+                args.d_feedforward,
+                args.get("learning_rate"),
+                DEFAULT_WEIGHT_DECAY,
+                util.DEFAULT_ACTIVATION,
+                total_steps,
+                util.DEFAULT_MAX_SEQ_LEN,
+                schedule=args.get("schedule"),
+                optimizer=args.get("optimizer", "adam"),
+                dropout=util.DEFAULT_DROPOUT,
+                warm_up_steps=args.get("warm_up_steps"),
+                **extra_args,
+            )
         elif self.model_type == "unified":
             model = UnifiedModel(
                 self.sampler,
@@ -427,6 +447,7 @@ class Chemformer:
                         vocabulary_size=self.vocabulary_size,
                         w_retro=args.get("w_retro", 1.0),
                         w_cos=args.get("w_cos", 0.5),
+                        strict=False,
                     )
                 else:
                     model = CycleConsistencyBARTModel.load_from_checkpoint(
@@ -443,6 +464,7 @@ class Chemformer:
                         **extra_args,
                         w_retro=args.get("w_retro", 1.0),
                         w_cos=args.get("w_cos", 0.5),
+                        strict=False,
                     )
             elif (
                 self.train_mode == "validation"
@@ -456,6 +478,7 @@ class Chemformer:
                     decode_sampler=self.sampler,
                     w_retro=args.get("w_retro", 1.0),
                     w_cos=args.get("w_cos", 0.5),
+                    strict=False,
                 )
 
                 model.eval()
@@ -472,6 +495,7 @@ class Chemformer:
                         vocabulary_size=self.vocabulary_size,
                         w_retro=args.get("w_retro", 1.0),
                         w_kl=args.get("w_kl", 0.1),
+                        strict=False,
                     )
                 else:
                     model = CycleConsistencySepBARTModel.load_from_checkpoint(
@@ -488,6 +512,7 @@ class Chemformer:
                         **extra_args,
                         w_retro=args.get("w_retro", 1.0),
                         w_kl=args.get("w_kl", 0.1),
+                        strict=False,
                     )
             elif (
                 self.train_mode == "validation"
@@ -501,6 +526,49 @@ class Chemformer:
                     decode_sampler=self.sampler,
                     w_retro=args.get("w_retro", 1.0),
                     w_kl=args.get("w_kl", 0.1),
+                    strict=False,
+                )
+
+                model.eval()
+            else:
+                raise ValueError(f"Unknown training mode: {self.train_mode}")
+        elif self.model_type == "graph_bart":
+            if self.train_mode == "training" or self.train_mode == "train":
+                if self.resume_training:
+                    model = GraphBARTModel.load_from_checkpoint(
+                        self.model_path,
+                        decode_sampler=self.sampler,
+                        num_steps=total_steps,
+                        pad_token_idx=pad_token_idx,
+                        vocabulary_size=self.vocabulary_size,
+                        strict=False,
+                    )
+                else:
+                    model = GraphBARTModel.load_from_checkpoint(
+                        self.model_path,
+                        decode_sampler=self.sampler,
+                        pad_token_idx=pad_token_idx,
+                        vocabulary_size=self.vocabulary_size,
+                        num_steps=total_steps,
+                        lr=args.learning_rate,
+                        weight_decay=args.weight_decay,
+                        schedule=args.schedule,
+                        warm_up_steps=args.warm_up_steps,
+                        optimizer=args.get("optimizer", "adam"),
+                        **extra_args,
+                        strict=False,
+                    )
+            elif (
+                self.train_mode == "validation"
+                or self.train_mode == "val"
+                or self.train_mode == "test"
+                or self.train_mode == "testing"
+                or self.train_mode == "eval"
+            ):
+                model = GraphReinforcedBARTModel.load_from_checkpoint(
+                    self.model_path, 
+                    decode_sampler=self.sampler,
+                    strict=False,
                 )
 
                 model.eval()

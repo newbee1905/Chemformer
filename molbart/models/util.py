@@ -1,7 +1,10 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
+from torch.nn.init import xavier_uniform_, zeros_
 from torch.optim.lr_scheduler import LambdaLR
-from typing import Optional, Tuple, List
+
+from typing import Callable, Union, Optional, Dict, Tuple, List
 
 import copy
 
@@ -64,109 +67,163 @@ class PreNormDecoderLayer(nn.TransformerDecoderLayer):
         out = att + self.dropout3(out)
         return out
 
-class CacheEnabledPreNormDecoderLayer(nn.Module):
+class RBFExpansion(nn.Module):
     """
-    A Transformer Decoder layer that uses 'pre-norm' normalization and
-    supports a self-attention KV cache for efficient inference.
+    Expands scalar distances into a vector representation using Gaussian radial basis functions.
+    This is a key component of SchNet and DimeNet.
+    
+    Args:
+        low (float): Smallest distance to embed.
+        high (float): Largest distance to embed.
+        num_basis (int): The number of basis functions (output dimension).
+        trainable (bool): Whether the RBF centers and gammas are trainable.
     """
-    def __init__(self, d_model: int, nhead: int, dim_feedforward: int = 2048,
-                 dropout: float = 0.1, activation: str = "relu"):
+    def __init__(self, low: float = 0.0, high: float = 30.0, num_basis: int = 64, trainable: bool = False):
         super().__init__()
+        self.num_basis = num_basis
+        
+        # Initialize offsets (centers) and gammas
+        offsets = torch.linspace(low, high, num_basis)
+        spacing = offsets[1] - offsets[0]
 
-        self.self_attn = nn.MultiheadAttention(d_model, nhead, dropout=dropout, batch_first=False)
-        self.multihead_attn = nn.MultiheadAttention(d_model, nhead, dropout=dropout, batch_first=False)
+        # gamma = 1 / (2 * sigma^2) 
+        # sigma = spacing
+        gammas = torch.tensor([0.5 / (spacing ** 2)] * num_basis)
+        
+        if trainable:
+            self.offsets = nn.Parameter(offsets)
+            self.gammas = nn.Parameter(gammas)
+        else:
+            self.register_buffer("offsets", offsets)
+            self.register_buffer("gammas", gammas)
 
-        # Feed-forward implementation
-        self.linear1 = nn.Linear(d_model, dim_feedforward)
-        self.dropout = nn.Dropout(dropout)
-        self.linear2 = nn.Linear(dim_feedforward, d_model)
+    def forward(self, dist: torch.Tensor) -> torch.Tensor:
+        if dist.dim() == 1:
+            dist = dist.unsqueeze(-1)
 
-        # Pre-normalization layers
-        self.norm1 = nn.LayerNorm(d_model)
-        self.norm2 = nn.LayerNorm(d_model)
-        self.norm3 = nn.LayerNorm(d_model)
+        diff = dist - self.offsets.view(1, -1)
 
-        # Dropout layers
-        self.dropout1 = nn.Dropout(dropout)
-        self.dropout2 = nn.Dropout(dropout)
-        self.dropout3 = nn.Dropout(dropout)
+        # Gaussian RBF formula: exp(-gamma * (dist - offset)^2)
+        return torch.exp(-self.gammas.view(1, -1) * (diff ** 2))
 
-        # Activation function
-        self.activation = getattr(nn.functional, activation)
+class Dense(nn.Linear):
+    r"""Fully connected linear layer with activation function.
 
-    def forward(
-       self, tgt: torch.Tensor, memory: torch.Tensor,
-       tgt_mask: Optional[torch.Tensor] = None,
-       memory_mask: Optional[torch.Tensor] = None,
-       tgt_key_padding_mask: Optional[torch.Tensor] = None,
-       memory_key_padding_mask: Optional[torch.Tensor] = None,
-       past_kv: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
-   ):
-        q_k_v = self.norm1(tgt)
+    .. math::
+    y = activation(x W^T + b)
+    """
 
-        # If a cache exists, tgt is only the last token.
-        # Otherwise, it's the full sequence.
-        q = k = v = q_k_v
-
-        # KV CACHE LOGIC
-        if past_kv is not None:
-            past_k, past_v = past_kv
-            k = torch.cat([past_k, k], dim=0)
-            v = torch.cat([past_v, v], dim=0)
-
-        new_kv = (k, v)
-
-        sa_output = self.self_attn(q, k, v, attn_mask=tgt_mask, key_padding_mask=tgt_key_padding_mask)[0]
-        tgt = tgt + self.dropout1(sa_output)
-
-
-        mha_input = self.norm2(tgt)
-        mha_output = self.multihead_attn(
-            mha_input, memory, memory, attn_mask=memory_mask,
-            key_padding_mask=memory_key_padding_mask
-        )[0]
-        tgt = tgt + self.dropout2(mha_output)
-
-
-        ffn_input = self.norm3(tgt)
-        ffn_output = self.linear2(self.dropout(self.activation(self.linear1(ffn_input))))
-        tgt = tgt + self.dropout3(ffn_output)
-
-        return tgt, new_kv
-
-class CacheEnabledDecoder(nn.Module):
-    """A stack of CacheEnabledDecoderLayers."""
-    def __init__(self, decoder_layer, num_layers, norm):
-        super().__init__()
-        self.layers = nn.ModuleList([copy.deepcopy(decoder_layer) for _ in range(num_layers)])
-        self.num_layers = num_layers
-        self.norm = norm
-
-    def forward(
-        self, tgt: torch.Tensor, memory: torch.Tensor,
-        tgt_mask: Optional[torch.Tensor] = None,
-        tgt_key_padding_mask: Optional[torch.Tensor] = None,
-        memory_key_padding_mask: Optional[torch.Tensor] = None,
-        past_kv_cache: Optional[List[Tuple[torch.Tensor, torch.Tensor]]] = None,
+    def __init__(
+        self,
+        in_features: int,
+        out_features: int,
+        bias: bool = True,
+        activation: Union[Callable, nn.Module] = None,
+        glu_variant: bool = False,
+        weight_init: Callable = xavier_uniform_,
+        bias_init: Callable = zeros_,
     ):
-        output = tgt
-        new_kv_cache = []
+        """
+        Args:
+            in_features: number of input feature :math:`x`.
+            out_features: number of output features :math:`y`.
+            bias: If False, the layer will not adapt bias :math:`b`.
+            activation: if None, no activation function is used.
+            weight_init: weight initializer from current weight.
+            bias_init: bias initializer from current bias.
+        """
+        self.weight_init = weight_init
+        self.bias_init = bias_init
+        self.glu_variant = glu_variant
+        if glu_variant:
+            out_features = out_features * 2
+        super().__init__(in_features, out_features, bias)
 
-        for i, layer in enumerate(self.layers):
-            past_kv_for_layer = past_kv_cache[i] if past_kv_cache else None
-            output, new_kv = layer(
-                output,
-                memory,
-                tgt_mask=tgt_mask,
-                tgt_key_padding_mask=tgt_key_padding_mask,
-                memory_key_padding_mask=memory_key_padding_mask,
-                past_kv=past_kv_for_layer
-            )
-            new_kv_cache.append(new_kv)
-            
-        if self.norm is not None:
-            output = self.norm(output)
-            
-        return output, new_kv_cache
+        self.activation = activation
+        if self.activation is None:
+            self.activation = nn.Identity()
+
+    def reset_parameters(self):
+        self.weight_init(self.weight)
+        if self.bias is not None:
+            self.bias_init(self.bias)
+
+    def forward(self, input: torch.Tensor):
+        if self.glu_variant:
+            gate, y = F.linear(input, self.weight, self.bias).chunk(2, dim=-1)
+            y = self.activation(gate) * y
+        else:
+            y = F.linear(input, self.weight, self.bias)
+            y = self.activation(y)
+
+        return y
+
+def scatter_add(
+    x: torch.Tensor, idx_i: torch.Tensor, dim_size: int, dim: int = 0
+) -> torch.Tensor:
+    """
+    Sum over values with the same indices.
+
+    Args:
+        x: input values
+        idx_i: index of center atom i
+        dim_size: size of the dimension after reduction
+        dim: the dimension to reduce
+
+    Returns:
+        reduced input
+
+    """
+    return _scatter_add(x, idx_i, dim_size, dim)
+
+
+@torch.jit.script
+def _scatter_add(
+    x: torch.Tensor, idx_i: torch.Tensor, dim_size: int, dim: int = 0
+) -> torch.Tensor:
+    shape = list(x.shape)
+    shape[dim] = dim_size
+    tmp = torch.zeros(shape, dtype=x.dtype, device=x.device)
+    y = tmp.index_add(dim, idx_i, x)
+    return y
+
+def scatter_mean(
+    x: torch.Tensor, idx_i: torch.Tensor, dim_size: int, dim: int = 0
+) -> torch.Tensor:
+    """
+    Average over values with the same indices.
+
+    Args:
+        x: input values
+        idx_i: index of center atom i
+        dim_size: size of the dimension after reduction
+        dim: the dimension to reduce
+
+    Returns:
+        reduced input (mean)
+
+    """
+    return _scatter_mean(x, idx_i, dim_size, dim)
+
+
+@torch.jit.script
+def _scatter_mean(
+    x: torch.Tensor, idx_i: torch.Tensor, dim_size: int, dim: int = 0
+) -> torch.Tensor:
+    sums = _scatter_add(x, idx_i, dim_size, dim)
+
+    count_shape = list(x.shape)
+    for i in range(len(count_shape)):
+        if i != dim:
+            count_shape[i] = 1
+    
+    ones = torch.ones(count_shape, dtype=x.dtype, device=x.device)
+    counts = _scatter_add(ones, idx_i, dim_size, dim)
+
+    # Handle division by zero for indices that have no elements
+    counts = counts.clamp(min=1)
+
+    return sums / counts
+
 
 # vim: ts=4 sw=4 expandtab

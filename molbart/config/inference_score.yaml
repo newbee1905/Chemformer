@@ -24,8 +24,8 @@ i_chunk: 0
 n_chunks: 1
 
 # Output files
-output_score_data: null
-output_sampled_smiles: null
+output_score_data: "metrics.csv"
+output_sampled_smiles: "smiles.json"
 
 # Model args
 model_path: null
@@ -33,6 +33,13 @@ model_type: bart            # ["bart", "unified"]
 n_beams: 10
 n_unique_beams: null
 train_mode: eval
+
+rl:
+  learning_rate: 1.0e-5
+  ppo_epochs: 4
+  clip_param: 0.2
+  kl_coeff: 0.02
+  g_samples: 10
 
 datamodule:
   - SynthesisDataModule

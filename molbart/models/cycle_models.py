@@ -12,19 +12,26 @@ from molbart.models.util import PreNormDecoderLayer, PreNormEncoderLayer
 
 class CycleConsistencyBARTModel(BARTModel):
     def __init__(self, *args, **kwargs):
-        self.w_retro = kwargs.pop("w_retro", 1.0)
-        self.w_cos = kwargs.pop("w_cos", 0.5)
-        self.gumbel_tau = kwargs.pop("gumbel_tau", 0.3)
+        # self.w_retro = kwargs.pop("w_retro", 0.5)
+        # self.w_cos = kwargs.pop("w_cos", 0.1)
+        # self.gumbel_tau = kwargs.pop("gumbel_tau", 0.3)
+
+        self.w_retro = 1.0
+        self.w_cos = 0.0
 
         super().__init__(*args, **kwargs)
 
         self.cos_sim_fn = nn.CosineSimilarity(dim=-1)
         # self.loss_function = nn.CrossEntropyLoss(reduction="none", ignore_index=self.pad_token_idx, label_smoothing=0.1)
 
-        # self.max_tau = 2.0
-        # self.min_tau = 0.5
+        self.max_tau = 1.2
+        self.min_tau = 0.1
+        self.max_consistency_weight = 0.1
+        self.min_consistency_weight = 0.01
 
-        # self.tau_decay_steps = self.num_steps * 0.75
+        self.tau_decay_steps = self.num_steps * 0.75
+        self.consistency_warm_up = self.num_steps * 0.05
+        self.consistency_decay_steps = (self.num_steps - self.consistency_warm_up) * 0.5
 
     def _get_eos_representation(
         self, 
@@ -50,10 +57,17 @@ class CycleConsistencyBARTModel(BARTModel):
         forward_output = self.forward(batch)
         l_forward = self._calc_loss(batch, forward_output)
 
-        # decay_ratio = min(self.global_step / self.tau_decay_steps, 1.0)
-        # current_tau = self.max_tau * math.exp(-math.log(self.max_tau / self.min_tau) * decay_ratio)
-        # self.log("gumbel_tau", current_tau, on_step=True, logger=True)
-        current_tau = self.gumbel_tau
+        # if self.global_step <= self.consistency_warm_up:
+        #     current_consistency = 0.0
+        # else:
+        #     warmup_ratio = min((self.global_step - self.consistency_warm_up) / self.consistency_decay_steps, 1.0)
+        #     current_consistency = self.min_consistency_weight * math.exp(math.log(self.max_consistency_weight / self.min_consistency_weight) * warmup_ratio)
+        # self.log("w_consistency", current_consistency, on_step=True, logger=True)
+
+        decay_ratio = min(self.global_step / self.tau_decay_steps, 1.0)
+        current_tau = self.max_tau * math.exp(-math.log(self.max_tau / self.min_tau) * decay_ratio)
+        self.log("gumbel_tau", current_tau, on_step=True, logger=True)
+        # current_tau = self.gumbel_tau
 
         forward_logits = forward_output["token_output"]
         predicted_product_probs = F.gumbel_softmax(
@@ -83,6 +97,63 @@ class CycleConsistencyBARTModel(BARTModel):
             tgt_key_padding_mask=retro_decoder_pad_mask,
             memory_key_padding_mask=retro_encoder_pad_mask.clone()
         )
+        # retro_logits = self.token_fc(retro_decoder_output)
+        # retro_output = {"model_output": retro_decoder_output, "token_output": retro_logits}
+
+        # retro_loss_batch = {
+        #     "target": batch["encoder_input"][1:, :],
+        #     "target_mask": batch["encoder_pad_mask"][1:, :],
+        # }
+        # l_retro = self._calc_loss(retro_loss_batch, retro_output)
+
+        # predicted_reactant_probs = F.gumbel_softmax(retro_logits, tau=current_tau, hard=False, dim=-1)
+        # soft_reactant_embs = torch.matmul(predicted_reactant_probs, self.emb.weight)
+        # soft_reactant_embs = soft_reactant_embs * math.sqrt(self.d_model)
+
+        # seq_len, _, _ = soft_reactant_embs.size()
+        # pos_embs_r2 = self.pos_emb[:seq_len, :].unsqueeze(1)
+        # recon_encoder_embs = self.dropout(soft_reactant_embs + pos_embs_r2)
+        
+        # recon_encoder_pad_mask = batch["encoder_pad_mask"][1:, :].clone().transpose(0, 1)
+        # recon_memory = self.encoder(recon_encoder_embs, src_key_padding_mask=recon_encoder_pad_mask)
+        
+        # recon_decoder_input = batch["decoder_input"]
+        # recon_decoder_pad_mask = batch["decoder_pad_mask"].transpose(0, 1)
+        # recon_decoder_embs = self._construct_input(recon_decoder_input)
+        # tgt_seq_len, _, _ = recon_decoder_embs.size()
+        # tgt_mask_r2 = self._generate_square_subsequent_mask(tgt_seq_len, device=self.device)
+        
+        # recon_decoder_output = self.decoder(
+        #     recon_decoder_embs,
+        #     recon_memory,
+        #     tgt_mask=tgt_mask_r2,
+        #     tgt_key_padding_mask=recon_decoder_pad_mask,
+        #     memory_key_padding_mask=recon_encoder_pad_mask.clone()
+        # )
+        # p2_logits = self.token_fc(recon_decoder_output)
+        # l_p2 = self._calc_loss(batch, {
+        #     "model_output": recon_decoder_output,
+        #     "token_output": p2_logits,
+        # })
+
+        # l_consistency = F.kl_div(
+        #     F.log_softmax(p2_logits, dim=-1),
+        #     F.softmax(forward_logits, dim=-1),
+        #     reduction='batchmean'
+        # )
+
+        # l_total = l_forward + l_p2 + (self.w_retro * l_retro) + (current_consistency * l_consistency)
+
+        # self.log_dict({
+        #     "train_loss_total": l_total,
+        #     "train_loss_forward": l_forward,
+        #     "train_loss_retro": l_retro,
+        #     "train_loss_forward_2": l_p2,
+        #     "train_loss_consistency": l_consistency,
+        # }, on_step=False, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
+
+        # return l_total
+
         retro_token_output = self.token_fc(retro_decoder_output)
         retro_output = {"model_output": retro_decoder_output, "token_output": retro_token_output}
 
@@ -106,6 +177,7 @@ class CycleConsistencyBARTModel(BARTModel):
         }, on_step=False, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)
 
         return l_total
+
 
 class CycleConsistencySepBARTModel(CycleConsistencyBARTModel):
     def __init__(self, *args, **kwargs):

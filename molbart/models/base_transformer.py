@@ -317,3 +317,5 @@ class _AbsTransformerModel(pl.LightningModule):
     def _log_dict(self, coll):
         for key, val in coll.items():
             self.log(key, val, sync_dist=True)
+
+# vim: ts=4 sw=4 expandtab

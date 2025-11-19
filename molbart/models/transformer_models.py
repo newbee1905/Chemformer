@@ -8,7 +8,7 @@ import torch.nn.functional as F
 from torch.optim.lr_scheduler import OneCycleLR
 
 from molbart.models import _AbsTransformerModel
-from molbart.models.util import PreNormDecoderLayer, PreNormEncoderLayer, CacheEnabledPreNormDecoderLayer, CacheEnabledDecoder
+from molbart.models.util import PreNormDecoderLayer, PreNormEncoderLayer
 
 from typing import Optional, Tuple, Dict, List
 
